@@ -1,4 +1,4 @@
-aiocometd
+*FORKED* aiocometd
 =========
 
 .. image:: https://badge.fury.io/py/aiocometd.svg
