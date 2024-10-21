@@ -15,7 +15,7 @@ def defer(
     delay: Union[int, float, None] = None,
     *,
     # NOTE: this is deprecated but needed in aiosfstream
-    loop: Optional[asyncio.AbstractEventLoop] = None
+    loop: Optional[asyncio.AbstractEventLoop] = None,
 ) -> CoroFunction:
     """Returns a coroutine function that will defer the call to the given
     *coro_func* by *delay* seconds
@@ -27,9 +27,7 @@ def defer(
     """
 
     @wraps(coro_func)
-    async def wrapper(
-        *args: Any, **kwargs: Any
-    ) -> Any:  # pylint: disable=missing-docstring
+    async def wrapper(*args: Any, **kwargs: Any) -> Any:  # pylint: disable=missing-docstring
         if delay:
             await asyncio.sleep(delay)  # type: ignore
         return await coro_func(*args, **kwargs)
@@ -99,7 +97,7 @@ def get_error_args(error_field: Union[str, None]) -> Optional[List[str]]:
 
 
 def is_matching_response(
-    response_message: JsonObject, message: Optional[JsonObject]
+    response_message: JsonObject | None, message: Optional[JsonObject]
 ) -> bool:
     """Check whether the *response_message* is a response for the
     given *message*.

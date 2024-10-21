@@ -1,422 +1,458 @@
 import asyncio
+from unittest import mock
 
-from asynctest import TestCase, mock
+import pytest
 
-from aiocometd.utils import get_error_message, get_error_code, get_error_args,\
-    defer, is_auth_error_message, is_event_message, is_server_error_message, \
-    is_matching_response
+from aiocometd.utils import (
+    get_error_message,
+    get_error_code,
+    get_error_args,
+    defer,
+    is_auth_error_message,
+    is_event_message,
+    is_server_error_message,
+    is_matching_response,
+)
 from aiocometd.constants import MetaChannel, SERVICE_CHANNEL_PREFIX
 
+# This is the same as using the @pytest.mark.anyio on all test functions in the module
+pytestmark = pytest.mark.anyio
 
-class TestGetErrorCode(TestCase):
-    def test_get_error_code(self):
-        error_field = "123::"
 
-        result = get_error_code(error_field)
+@pytest.fixture
+def mock_coro_function():
+    async def coro_func(value):
+        return value
 
-        self.assertEqual(result, 123)
+    return coro_func
 
-    def test_get_error_code_none_field(self):
-        error_field = None
 
-        result = get_error_code(error_field)
+@pytest.fixture
+def mock_sleep():
+    with mock.patch("aiocometd.utils.asyncio.sleep") as mock_func:
+        yield mock_func
 
-        self.assertIsNone(result)
 
-    def test_get_error_code_empty_field(self):
-        error_field = ""
+@pytest.fixture
+def mock_get_error_code():
+    with mock.patch("aiocometd.utils.get_error_code") as mock_func:
+        yield mock_func
 
-        result = get_error_code(error_field)
 
-        self.assertIsNone(result)
+def test_get_error_code():
+    error_field = "123::"
+    result = get_error_code(error_field)
 
-    def test_get_error_code_invalid_field(self):
-        error_field = "invalid"
+    assert result == 123
 
-        result = get_error_code(error_field)
 
-        self.assertIsNone(result)
+def test_get_error_code_none_field():
+    error_field = None
 
-    def test_get_error_code_short_invalid_field(self):
-        error_field = "12::"
+    result = get_error_code(error_field)
 
-        result = get_error_code(error_field)
+    assert result is None
 
-        self.assertIsNone(result)
 
-    def test_get_error_code_empty_code_field(self):
-        error_field = "::"
+def test_get_error_code_empty_fielde():
+    error_field = ""
 
-        result = get_error_code(error_field)
+    result = get_error_code(error_field)
 
-        self.assertIsNone(result)
+    assert result is None
 
 
-class TestGetErrorMessage(TestCase):
-    def test_get_error_message(self):
-        error_field = "::message"
+def test_get_error_code_invalid_field():
+    error_field = "invalid"
 
-        result = get_error_message(error_field)
+    result = get_error_code(error_field)
 
-        self.assertEqual(result, "message")
+    assert result is None
 
-    def test_get_error_message_none_field(self):
-        error_field = None
 
-        result = get_error_message(error_field)
+def test_get_error_code_short_invalid_field():
+    error_field = "12::"
 
-        self.assertIsNone(result)
+    result = get_error_code(error_field)
 
-    def test_get_error_message_empty_field(self):
-        error_field = ""
+    assert result is None
 
-        result = get_error_message(error_field)
 
-        self.assertIsNone(result)
+def test_get_error_code_empty_code_field():
+    error_field = "::"
 
-    def test_get_error_message_invalid_field(self):
-        error_field = "invalid"
+    result = get_error_code(error_field)
 
-        result = get_error_message(error_field)
+    assert result is None
 
-        self.assertIsNone(result)
 
-    def test_get_error_message_empty_code_field(self):
-        error_field = "::"
+def test_get_error_message():
+    error_field = "::message"
 
-        result = get_error_message(error_field)
+    result = get_error_message(error_field)
 
-        self.assertEqual(result, "")
+    assert result == "message"
 
 
-class TestGetErrorArgs(TestCase):
-    def test_get_error_args(self):
-        error_field = "403:xj3sjdsjdsjad,/foo/bar:Subscription denied"
+def test_get_error_message_none_field():
+    error_field = None
 
-        result = get_error_args(error_field)
+    result = get_error_message(error_field)
 
-        self.assertEqual(result, ["xj3sjdsjdsjad", "/foo/bar"])
+    assert result is None
 
-    def test_get_error_args_none_field(self):
-        error_field = None
 
-        result = get_error_args(error_field)
+def test_get_error_message_empty_field():
+    error_field = ""
 
-        self.assertIsNone(result)
+    result = get_error_message(error_field)
 
-    def test_get_error_args_empty_field(self):
-        error_field = ""
+    assert result is None
 
-        result = get_error_args(error_field)
 
-        self.assertIsNone(result)
+def test_get_error_message_invalid_field():
+    error_field = "invalid"
 
-    def test_get_error_args_invalid_field(self):
-        error_field = "invalid"
+    result = get_error_message(error_field)
 
-        result = get_error_args(error_field)
+    assert result is None
 
-        self.assertIsNone(result)
 
-    def test_get_error_args_empty_code_field(self):
-        error_field = "::"
+def test_get_error_message_empty_code_field():
+    error_field = "::"
 
-        result = get_error_args(error_field)
+    result = get_error_message(error_field)
 
-        self.assertEqual(result, [])
+    assert result == ""
 
 
-class TestDefer(TestCase):
-    def setUp(self):
-        async def coro_func(value):
-            return value
+def test_get_error_args():
+    error_field = "403:xj3sjdsjdsjad,/foo/bar:Subscription denied"
 
-        self.coro_func = coro_func
+    result = get_error_args(error_field)
 
-    @mock.patch("aiocometd.utils.asyncio.sleep")
-    async def test_defer(self, sleep):
-        argument = object()
-        delay = 10
-        wrapper = defer(self.coro_func, delay, loop=None)
+    assert result == ["xj3sjdsjdsjad", "/foo/bar"]
 
-        result = await wrapper(argument)
 
-        self.assertIs(result, argument)
-        sleep.assert_called_with(delay, loop=None)
+def test_get_error_args_none_field():
+    error_field = None
 
-    @mock.patch("aiocometd.utils.asyncio.sleep")
-    async def test_defer_no_loop(self, sleep):
-        argument = object()
-        delay = 10
-        wrapper = defer(self.coro_func, delay)
+    result = get_error_args(error_field)
 
-        result = await wrapper(argument)
+    assert result is None
 
-        self.assertIs(result, argument)
-        sleep.assert_called_with(delay, loop=None)
 
-    @mock.patch("aiocometd.utils.asyncio.sleep")
-    async def test_defer_none_delay(self, sleep):
-        argument = object()
-        wrapper = defer(self.coro_func)
+def test_get_error_args_empty_field():
+    error_field = ""
 
-        result = await wrapper(argument)
+    result = get_error_args(error_field)
 
-        self.assertIs(result, argument)
-        sleep.assert_not_called()
+    assert result is None
 
-    @mock.patch("aiocometd.utils.asyncio.sleep")
-    async def test_defer_zero_delay(self, sleep):
-        argument = object()
-        delay = 0
-        wrapper = defer(self.coro_func, delay)
 
-        result = await wrapper(argument)
+def test_get_error_args_invalid_field():
+    error_field = "invalid"
 
-        self.assertIs(result, argument)
-        sleep.assert_not_called()
+    result = get_error_args(error_field)
 
-    @mock.patch("aiocometd.utils.asyncio.sleep")
-    async def test_defer_sleep_canceled(self, sleep):
-        argument = object()
-        delay = 10
-        wrapper = defer(self.coro_func, delay)
-        sleep.side_effect = asyncio.CancelledError()
+    assert result is None
 
-        with self.assertRaises(asyncio.CancelledError):
-            await wrapper(argument)
 
-        sleep.assert_called_with(delay, loop=None)
+def test_get_error_args_empty_code_field():
+    error_field = "::"
 
+    result = get_error_args(error_field)
 
-class TestIsAuthErrorMessage(TestCase):
-    @mock.patch("aiocometd.utils.get_error_code")
-    def test_is_auth_error_message(self, get_error_code):
-        response = {
-            "error": "error"
-        }
-        get_error_code.return_value = 401
+    assert result == []
 
-        result = is_auth_error_message(response)
 
-        self.assertTrue(result)
-        get_error_code.assert_called_with(response["error"])
+async def test_defer(mock_coro_function, mock_sleep):
+    delay = 10
+    wrapper = defer(mock_coro_function, delay, loop=None)
 
-    @mock.patch("aiocometd.utils.get_error_code")
-    def test_is_auth_error_message_forbidden(self, get_error_code):
-        response = {
-            "error": "error"
-        }
-        get_error_code.return_value = 403
+    argument = object()
+    result = await wrapper(argument)
 
-        result = is_auth_error_message(response)
+    assert result is argument
+    mock_sleep.assert_called_with(delay)
 
-        self.assertTrue(result)
-        get_error_code.assert_called_with(response["error"])
 
-    @mock.patch("aiocometd.utils.get_error_code")
-    def test_is_auth_error_message_not_an_auth_error(self, get_error_code):
-        response = {
-            "error": "error"
-        }
-        get_error_code.return_value = 400
+async def test_defer_no_loop(mock_coro_function, mock_sleep):
+    delay = 10
+    wrapper = defer(mock_coro_function, delay)
 
-        result = is_auth_error_message(response)
+    argument = object()
+    result = await wrapper(argument)
 
-        self.assertFalse(result)
-        get_error_code.assert_called_with(response["error"])
+    assert result is argument
+    mock_sleep.assert_called_with(delay)
 
-    @mock.patch("aiocometd.utils.get_error_code")
-    def test_is_auth_error_message_not_an_error(self, get_error_code):
-        response = {}
-        get_error_code.return_value = None
 
-        result = is_auth_error_message(response)
+async def test_defer_none_delay(mock_coro_function, mock_sleep):
+    wrapper = defer(mock_coro_function)
 
-        self.assertFalse(result)
-        get_error_code.assert_called_with(None)
+    argument = object()
+    result = await wrapper(argument)
 
+    assert result is argument
+    mock_sleep.assert_not_called()
 
-class TestIsEventMessage(TestCase):
-    def assert_event_message_for_channel(self, channel, has_data, has_id,
-                                         expected_result):
-        message = dict(channel=channel)
-        if has_data:
-            message["data"] = None
-        if has_id:
-            message["id"] = None
 
-        result = is_event_message(message)
+async def test_defer_zero_delay(mock_coro_function, mock_sleep):
+    delay = 0
+    wrapper = defer(mock_coro_function, delay)
 
-        self.assertEqual(result, expected_result)
+    argument = object()
+    result = await wrapper(argument)
 
-    def test_is_event_message_subscribe(self):
-        channel = MetaChannel.SUBSCRIBE
-        self.assert_event_message_for_channel(channel, False, False, False)
-        self.assert_event_message_for_channel(channel, True, False, False)
-        self.assert_event_message_for_channel(channel, False, True, False)
-        self.assert_event_message_for_channel(channel, True, True, False)
-
-    def test_is_event_message_unsubscribe(self):
-        channel = MetaChannel.UNSUBSCRIBE
-        self.assert_event_message_for_channel(channel, False, False, False)
-        self.assert_event_message_for_channel(channel, True, False, False)
-        self.assert_event_message_for_channel(channel, False, True, False)
-        self.assert_event_message_for_channel(channel, True, True, False)
+    assert result is argument
+    mock_sleep.assert_not_called()
 
-    def test_is_event_message_non_meta_channel(self):
-        channel = "/test/channel"
-        self.assert_event_message_for_channel(channel, False, False, False)
-        self.assert_event_message_for_channel(channel, True, False, True)
-        self.assert_event_message_for_channel(channel, False, True, False)
-        self.assert_event_message_for_channel(channel, True, True, True)
-
-    def test_is_event_message_service_channel(self):
-        channel = SERVICE_CHANNEL_PREFIX + "test"
-        self.assert_event_message_for_channel(channel, False, False, False)
-        self.assert_event_message_for_channel(channel, True, False, True)
-        self.assert_event_message_for_channel(channel, False, True, False)
-        self.assert_event_message_for_channel(channel, True, True, False)
-
-    def test_is_event_message_handshake(self):
-        channel = MetaChannel.HANDSHAKE
-        self.assert_event_message_for_channel(channel, False, False, False)
-        self.assert_event_message_for_channel(channel, True, False, False)
-        self.assert_event_message_for_channel(channel, False, True, False)
-        self.assert_event_message_for_channel(channel, True, True, False)
-
-    def test_is_event_message_connect(self):
-        channel = MetaChannel.CONNECT
-        self.assert_event_message_for_channel(channel, False, False, False)
-        self.assert_event_message_for_channel(channel, True, False, False)
-        self.assert_event_message_for_channel(channel, False, True, False)
-        self.assert_event_message_for_channel(channel, True, True, False)
-
-    def test_is_event_message_disconnect(self):
-        channel = MetaChannel.DISCONNECT
-        self.assert_event_message_for_channel(channel, False, False, False)
-        self.assert_event_message_for_channel(channel, True, False, False)
-        self.assert_event_message_for_channel(channel, False, True, False)
-        self.assert_event_message_for_channel(channel, True, True, False)
-
-
-class TestIsServerErrorMessage(TestCase):
-    def test_successful(self):
-        message = {
-            "successful": True
-        }
-
-        self.assertFalse(is_server_error_message(message))
-
-    def test_not_successful(self):
-        message = {
-            "successful": False
-        }
-
-        self.assertTrue(is_server_error_message(message))
-
-    def test_no_success_status(self):
-        message = {}
-
-        self.assertFalse(is_server_error_message(message))
-
-
-class TestIsMatchingResponse(TestCase):
-    def test_is_matching_response(self):
-        message = {
-            "channel": "/test/channel1",
-            "data": {},
-            "clientId": "clientId",
-            "id": "1"
-        }
-        response = {
-            "channel": "/test/channel1",
-            "successful": True,
-            "clientId": "clientId",
-            "id": "1"
-        }
-
-        self.assertTrue(is_matching_response(response, message))
-
-    def test_is_matching_response_response_none(self):
-        message = {
-            "channel": "/test/channel1",
-            "data": {},
-            "clientId": "clientId",
-            "id": "1"
-        }
-        response = None
-
-        self.assertFalse(is_matching_response(response, message))
-
-    def test_is_matching_response_message_none(self):
-        message = None
-        response = {
-            "channel": "/test/channel1",
-            "successful": True,
-            "clientId": "clientId",
-            "id": "1"
-        }
-
-        self.assertFalse(is_matching_response(response, message))
-
-    def test_is_matching_response_without_id(self):
-        message = {
-            "channel": "/test/channel1",
-            "data": {},
-            "clientId": "clientId",
-        }
-        response = {
-            "channel": "/test/channel1",
-            "successful": True,
-            "clientId": "clientId",
-        }
-
-        self.assertTrue(is_matching_response(response, message))
-
-    def test_is_matching_response_different_id(self):
-        message = {
-            "channel": "/test/channel1",
-            "data": {},
-            "clientId": "clientId",
-            "id": "1"
-        }
-        response = {
-            "channel": "/test/channel1",
-            "successful": True,
-            "clientId": "clientId",
-            "id": "2"
-        }
-
-        self.assertFalse(is_matching_response(response, message))
-
-    def test_is_matching_response_different_channel(self):
-        message = {
-            "channel": "/test/channel1",
-            "data": {},
-            "clientId": "clientId",
-            "id": "1"
-        }
-        response = {
-            "channel": "/test/channel2",
-            "successful": True,
-            "clientId": "clientId",
-            "id": "1"
-        }
-
-        self.assertFalse(is_matching_response(response, message))
-
-    def test_is_matching_response_without_successful_field(self):
-        message = {
-            "channel": "/test/channel1",
-            "data": {},
-            "clientId": "clientId",
-            "id": "1"
-        }
-        response = {
-            "channel": "/test/channel1",
-            "clientId": "clientId",
-            "id": "1"
-        }
-
-        self.assertFalse(is_matching_response(response, message))
+
+async def test_defer_sleep_canceled(mock_coro_function, mock_sleep):
+    delay = 10
+    wrapper = defer(mock_coro_function, delay)
+    mock_sleep.side_effect = asyncio.CancelledError()
+
+    argument = object()
+    with pytest.raises(asyncio.CancelledError):
+        await wrapper(argument)
+
+    mock_sleep.assert_called_with(delay)
+
+
+def test_is_auth_error_message(mock_get_error_code):
+    response = {"error": "error"}
+    mock_get_error_code.return_value = 401
+
+    result = is_auth_error_message(response)
+
+    assert result == True
+    mock_get_error_code.assert_called_with(response["error"])
+
+
+def test_is_auth_error_message_forbidden(mock_get_error_code):
+    response = {"error": "error"}
+    mock_get_error_code.return_value = 403
+
+    result = is_auth_error_message(response)
+
+    assert result == True
+    mock_get_error_code.assert_called_with(response["error"])
+
+
+def test_is_auth_error_message_not_an_auth_error(mock_get_error_code):
+    response = {"error": "error"}
+    mock_get_error_code.return_value = 400
+
+    result = is_auth_error_message(response)
+
+    assert result == False
+    mock_get_error_code.assert_called_with(response["error"])
+
+
+def test_is_auth_error_message_not_an_error(mock_get_error_code):
+    response = {}
+    mock_get_error_code.return_value = None
+
+    result = is_auth_error_message(response)
+
+    assert result == False
+    mock_get_error_code.assert_called_with(None)
+
+
+def _assert_event_message_for_channel(
+    channel, has_data, has_id, expected_result
+):
+    """
+    Helper function for `is_event_message()`
+    """
+    message = dict(channel=channel)
+    if has_data:
+        message["data"] = None
+    if has_id:
+        message["id"] = None
+
+    result = is_event_message(message)
+
+    assert result == expected_result
+
+
+def test_is_event_message_subscribe():
+    channel = MetaChannel.SUBSCRIBE
+    _assert_event_message_for_channel(channel, False, False, False)
+    _assert_event_message_for_channel(channel, True, False, False)
+    _assert_event_message_for_channel(channel, False, True, False)
+    _assert_event_message_for_channel(channel, True, True, False)
+
+
+def test_is_event_message_unsubscribe():
+    channel = MetaChannel.UNSUBSCRIBE
+    _assert_event_message_for_channel(channel, False, False, False)
+    _assert_event_message_for_channel(channel, True, False, False)
+    _assert_event_message_for_channel(channel, False, True, False)
+    _assert_event_message_for_channel(channel, True, True, False)
+
+
+def test_is_event_message_non_meta_channel():
+    channel = "/test/channel"
+    _assert_event_message_for_channel(channel, False, False, False)
+    _assert_event_message_for_channel(channel, True, False, True)
+    _assert_event_message_for_channel(channel, False, True, False)
+    _assert_event_message_for_channel(channel, True, True, True)
+
+
+def test_is_event_message_service_channel():
+    channel = SERVICE_CHANNEL_PREFIX + "test"
+    _assert_event_message_for_channel(channel, False, False, False)
+    _assert_event_message_for_channel(channel, True, False, True)
+    _assert_event_message_for_channel(channel, False, True, False)
+    _assert_event_message_for_channel(channel, True, True, False)
+
+
+def test_is_event_message_handshake():
+    channel = MetaChannel.HANDSHAKE
+    _assert_event_message_for_channel(channel, False, False, False)
+    _assert_event_message_for_channel(channel, True, False, False)
+    _assert_event_message_for_channel(channel, False, True, False)
+    _assert_event_message_for_channel(channel, True, True, False)
+
+
+def test_is_event_message_connect():
+    channel = MetaChannel.CONNECT
+    _assert_event_message_for_channel(channel, False, False, False)
+    _assert_event_message_for_channel(channel, True, False, False)
+    _assert_event_message_for_channel(channel, False, True, False)
+    _assert_event_message_for_channel(channel, True, True, False)
+
+
+def test_is_event_message_disconnect():
+    channel = MetaChannel.DISCONNECT
+    _assert_event_message_for_channel(channel, False, False, False)
+    _assert_event_message_for_channel(channel, True, False, False)
+    _assert_event_message_for_channel(channel, False, True, False)
+    _assert_event_message_for_channel(channel, True, True, False)
+
+
+def test_successful():
+    message = {"successful": True}
+
+    assert is_server_error_message(message) == False
+
+
+def test_not_successful():
+    message = {"successful": False}
+
+    assert is_server_error_message(message) == True
+
+
+def test_no_success_status():
+    message = {}
+
+    assert is_server_error_message(message) == False
+
+
+def test_is_matching_response():
+    message = {
+        "channel": "/test/channel1",
+        "data": {},
+        "clientId": "clientId",
+        "id": "1",
+    }
+    response = {
+        "channel": "/test/channel1",
+        "successful": True,
+        "clientId": "clientId",
+        "id": "1",
+    }
+
+    assert is_matching_response(response, message) == True
+
+
+def test_is_matching_response_response_none():
+    message = {
+        "channel": "/test/channel1",
+        "data": {},
+        "clientId": "clientId",
+        "id": "1",
+    }
+    response = None
+
+    assert is_matching_response(response, message) == False
+
+
+def test_is_matching_response_message_none():
+    message = None
+    response = {
+        "channel": "/test/channel1",
+        "successful": True,
+        "clientId": "clientId",
+        "id": "1",
+    }
+
+    assert is_matching_response(response, message) == False
+
+
+def test_is_matching_response_without_id():
+    message = {
+        "channel": "/test/channel1",
+        "data": {},
+        "clientId": "clientId",
+    }
+    response = {
+        "channel": "/test/channel1",
+        "successful": True,
+        "clientId": "clientId",
+    }
+
+    assert is_matching_response(response, message) == True
+
+
+def test_is_matching_response_different_id():
+    message = {
+        "channel": "/test/channel1",
+        "data": {},
+        "clientId": "clientId",
+        "id": "1",
+    }
+    response = {
+        "channel": "/test/channel1",
+        "successful": True,
+        "clientId": "clientId",
+        "id": "2",
+    }
+
+    assert is_matching_response(response, message) == False
+
+
+def test_is_matching_response_different_channel():
+    message = {
+        "channel": "/test/channel1",
+        "data": {},
+        "clientId": "clientId",
+        "id": "1",
+    }
+    response = {
+        "channel": "/test/channel2",
+        "successful": True,
+        "clientId": "clientId",
+        "id": "1",
+    }
+
+    assert is_matching_response(response, message) == False
+
+
+def test_is_matching_response_without_successful_field():
+    message = {
+        "channel": "/test/channel1",
+        "data": {},
+        "clientId": "clientId",
+        "id": "1",
+    }
+    response = {
+        "channel": "/test/channel1",
+        "clientId": "clientId",
+        "id": "1",
+    }
+
+    assert is_matching_response(response, message) == False
