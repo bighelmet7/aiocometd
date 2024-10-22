@@ -52,7 +52,10 @@ class Client:  # pylint: disable=too-many-instance-attributes
         MetaChannel.UNSUBSCRIBE: "Unsubscribe request failed.",
     }
     #: Defualt connection types list
-    _DEFAULT_CONNECTION_TYPES = [ConnectionType.WEBSOCKET, ConnectionType.LONG_POLLING]
+    _DEFAULT_CONNECTION_TYPES = [
+        ConnectionType.WEBSOCKET,
+        ConnectionType.LONG_POLLING,
+    ]
     #: Timeout to give to HTTP session to close itself
     _HTTP_SESSION_CLOSE_TIMEOUT = 0.250
 
@@ -69,7 +72,7 @@ class Client:  # pylint: disable=too-many-instance-attributes
         json_dumps: JsonDumper = json.dumps,
         json_loads: JsonLoader = json.loads,
         # NOTE: this is deprecated but needed in aiosfstream
-        loop: Optional[asyncio.AbstractEventLoop] = None
+        loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
         """
         :param url: CometD service url
@@ -202,7 +205,9 @@ class Client:  # pylint: disable=too-many-instance-attributes
         # aiohttp produces log messages with warnings that a session should be
         # created in a coroutine
         if self._http_session is None:
-            self._http_session = aiohttp.ClientSession(json_serialize=self._json_dumps)
+            self._http_session = aiohttp.ClientSession(
+                json_serialize=self._json_dumps
+            )
         return self._http_session
 
     async def _close_http_session(self) -> None:
@@ -230,7 +235,9 @@ class Client:  # pylint: disable=too-many-instance-attributes
             with suppress(ValueError):
                 server_connection_types.append(ConnectionType(type_string))
 
-        intersection = set(server_connection_types) & set(self._connection_types)
+        intersection = set(server_connection_types) & set(
+            self._connection_types
+        )
         if not intersection:
             return None
 
@@ -264,8 +271,9 @@ class Client:  # pylint: disable=too-many-instance-attributes
             self._verify_response(response)
 
             LOGGER.info(
-                "Connection types supported by the server: %r",
-                response["supportedConnectionTypes"],
+                "Connection types supported by the server: {!r}".format(
+                    response["supportedConnectionTypes"]
+                ),
             )
             connection_type = self._pick_connection_type(
                 response["supportedConnectionTypes"]
@@ -322,8 +330,9 @@ class Client:  # pylint: disable=too-many-instance-attributes
             raise ClientInvalidOperation("Client is already open.")
 
         LOGGER.info(
-            "Opening client with connection types %r ...",
-            [t.value for t in self._connection_types],
+            "Opening client with connection types {!r} ...".format(
+                [t.value for t in self._connection_types]
+            )
         )
         self._transport = await self._negotiate_transport()
 
@@ -332,7 +341,11 @@ class Client:  # pylint: disable=too-many-instance-attributes
         self._closed = False
 
         assert self.connection_type is not None
-        LOGGER.info("Client opened with connection_type %r", self.connection_type.value)
+        LOGGER.info(
+            "Client opened with connection_type {!r}".format(
+                self.connection_type.value
+            )
+        )
 
     async def close(self) -> None:
         """Disconnect from the CometD server"""
@@ -384,7 +397,8 @@ class Client:  # pylint: disable=too-many-instance-attributes
         """
         if self.closed:
             raise ClientInvalidOperation(
-                "Can't send unsubscribe request " "while, the client is closed."
+                "Can't send unsubscribe request "
+                "while, the client is closed."
             )
         await self._check_server_disconnected()
 
@@ -504,7 +518,9 @@ class Client:  # pylint: disable=too-many-instance-attributes
         """Exit the runtime context and call :obj:`open`"""
         await self.close()
 
-    async def _get_message(self, connection_timeout: Union[int, float]) -> JsonObject:
+    async def _get_message(
+        self, connection_timeout: Union[int, float]
+    ) -> JsonObject:
         """Get the next incoming message
 
         :param connection_timeout: The maximum amount of time to wait for the \
@@ -561,7 +577,9 @@ class Client:  # pylint: disable=too-many-instance-attributes
                 task.cancel()
             raise
 
-    async def _wait_connection_timeout(self, timeout: Union[int, float]) -> None:
+    async def _wait_connection_timeout(
+        self, timeout: Union[int, float]
+    ) -> None:
         """Wait for and return when the transport can't re-establish \
         connection with the server in *timeout* time
 
@@ -594,5 +612,6 @@ class Client:  # pylint: disable=too-many-instance-attributes
         ):
             await self.close()
             raise ServerError(
-                "Connection closed by the server", self._transport.last_connect_result
+                "Connection closed by the server",
+                self._transport.last_connect_result,
             )

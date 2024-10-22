@@ -1,8 +1,11 @@
 import asyncio
 import reprlib
+import logging
+from unittest import mock
 from enum import Enum, unique
 
-from asynctest import TestCase, mock
+import aiohttp
+import pytest
 
 from aiocometd.client import Client
 from aiocometd.exceptions import (
@@ -29,139 +32,135 @@ class MockConnectionType(Enum):
     TYPE4 = "type4"
 
 
-class TestClient(TestCase):
-    def setUp(self):
-        self.client = Client("")
+@pytest.fixture
+def cometd_client():
+    cometd_url = "http://cometd.local.test"
+    return Client(url=cometd_url)
 
-    async def long_task(self, result, timeout=None):
-        if timeout:
-            await asyncio.sleep(
-                timeout,
-            )
+
+@pytest.fixture
+def long_task():
+    def helper(result, timeout=None):
         if not isinstance(result, Exception):
             return result
-        else:
-            raise result
 
-    def test_init_with_loop(self):
-        loop = object()
+        raise result
 
-        client = Client(
-            url=None,
+    return helper
+
+
+@pytest.fixture
+def mock_transport():
+    transport = mock.MagicMock()
+    transport.connection_type = DEFAULT_CONNECTION_TYPE
+
+    connect_result = object()
+    transport.connect = mock.AsyncMock(return_value=connect_result)
+
+    response = {
+        "supportedConnectionTypes": [DEFAULT_CONNECTION_TYPE.value],
+        "successful": True,
+    }
+    transport.handshake = mock.AsyncMock(return_value=response)
+    transport.close = mock.AsyncMock()
+    return transport
+
+
+@pytest.fixture
+def mock_create_transport(mock_transport):
+    with mock.patch(
+        "aiocometd.client.create_transport", return_value=mock_transport
+    ) as mock_function:
+        yield mock_function
+
+
+def test_init_with_no_connection_types(cometd_client):
+    expected = [ConnectionType.WEBSOCKET, ConnectionType.LONG_POLLING]
+    assert cometd_client._connection_types == expected
+
+
+def test_init_with_connection_types_list():
+    connection_types = [ConnectionType.LONG_POLLING, ConnectionType.WEBSOCKET]
+    client = Client(url="", connection_types=connection_types)
+
+    assert client._connection_types == connection_types
+
+
+def test_init_with_connection_type_value():
+    # NOTE: this tests the _connection_type as a singular value
+    # instead of a list
+    connection_type = ConnectionType.LONG_POLLING
+    client = Client(url="", connection_types=connection_type)
+
+    assert client._connection_types == [connection_type]
+
+
+def test_subscriptions(cometd_client):
+    # NOTE: checks if the aiocometd.Client() sets the subscriptions property
+    cometd_client._transport = mock.MagicMock()
+    cometd_client._transport.subscriptions = {"channel1", "channel2"}
+
+    result = cometd_client.subscriptions
+    assert result == cometd_client._transport.subscriptions
+
+
+def test_subscriptions_emtpy_on_none_transport(cometd_client):
+    cometd_client._transport = None
+    result = cometd_client.subscriptions
+
+    assert result == set()
+
+
+def test_connection_type(cometd_client):
+    cometd_client._transport = mock.MagicMock()
+    cometd_client._transport.connection_type = object()
+
+    result = cometd_client.connection_type
+
+    assert result is cometd_client._transport.connection_type
+
+
+def test_closed_read_only(cometd_client):
+    with pytest.raises(AttributeError):
+        cometd_client.closed = False
+
+
+async def test_get_http_session(cometd_client):
+    cometd_client._http_session = object()
+
+    session = await cometd_client._get_http_session()
+    assert session == cometd_client._http_session
+
+
+async def test_close_http_session(cometd_client):
+    with mock.patch("aiocometd.client.asyncio.sleep") as mock_sleep:
+        cometd_client._http_session = mock.MagicMock()
+        cometd_client._http_session.closed = False
+        cometd_client._http_session.close = mock.AsyncMock()
+
+        await cometd_client._close_http_session()
+
+        cometd_client._http_session.close.assert_called()
+        mock_sleep.assert_called_with(
+            cometd_client._HTTP_SESSION_CLOSE_TIMEOUT
         )
 
-        self.assertIs(client._loop, loop)
 
-    @mock.patch("aiocometd.client.asyncio")
-    def test_init_without_loop(self, asyncio_mock):
-        loop = object()
-        asyncio_mock.get_event_loop.return_value = loop
+async def test_close_http_session_already_closed(cometd_client):
+    with mock.patch("aiocometd.client.asyncio.sleep") as mock_sleep:
+        cometd_client._http_session = mock.MagicMock()
+        cometd_client._http_session.closed = True
+        cometd_client._http_session.close = mock.AsyncMock()
 
-        client = Client(url=None)
+        await cometd_client._close_http_session()
 
-        self.assertIs(client._loop, loop)
+        cometd_client._http_session.close.assert_not_called()
+        mock_sleep.assert_not_called()
 
-    def test_init_with_no_connection_types(self):
-        client = Client(url=None)
 
-        self.assertEqual(
-            client._connection_types,
-            [ConnectionType.WEBSOCKET, ConnectionType.LONG_POLLING],
-        )
-
-    def test_init_with_connection_types_list(self):
-        list = [ConnectionType.LONG_POLLING, ConnectionType.WEBSOCKET]
-
-        client = Client(url=None, connection_types=list)
-
-        self.assertEqual(client._connection_types, list)
-
-    def test_init_with_connection_type_value(self):
-        type = ConnectionType.LONG_POLLING
-
-        client = Client(url=None, connection_types=type)
-
-        self.assertEqual(client._connection_types, [type])
-
-    def test_subscriptions(self):
-        self.client._transport = mock.MagicMock()
-        self.client._transport.subscriptions = {"channel1", "channel2"}
-
-        result = self.client.subscriptions
-
-        self.assertEqual(result, self.client._transport.subscriptions)
-
-    def test_subscriptions_emtpy_on_none_transport(self):
-        self.client._transport = None
-
-        result = self.client.subscriptions
-
-        self.assertEqual(result, set())
-
-    def test_connection_type(self):
-        self.client._transport = mock.MagicMock()
-        self.client._transport.connection_type = object()
-
-        result = self.client.connection_type
-
-        self.assertIs(result, self.client._transport.connection_type)
-
-    def test_connection_type_none_on_no_transport(self):
-        self.assertIsNone(self.client.connection_type)
-
-    def test_closed(self):
-        self.assertIs(self.client.closed, self.client._closed)
-
-    def test_closed_read_only(self):
-        with self.assertRaises(AttributeError):
-            self.client.closed = False
-
-    async def test_get_http_session(self):
-        self.client._http_session = object()
-
-        session = await self.client._get_http_session()
-
-        self.assertEqual(session, self.client._http_session)
-
-    @mock.patch("aiocometd.client.aiohttp.ClientSession")
-    async def test_get_http_session_creates_session(self, client_session_cls):
-        self.client._http_session = None
-        session = object()
-        client_session_cls.return_value = session
-
-        session = await self.client._get_http_session()
-
-        self.assertEqual(session, self.client._http_session)
-        self.assertEqual(self.client._http_session, session)
-        client_session_cls.assert_called_with(json_serialize=self.client._json_dumps)
-
-    @mock.patch("aiocometd.client.asyncio")
-    async def test_close_http_session(self, asyncio_mock):
-        self.client._http_session = mock.MagicMock()
-        self.client._http_session.closed = False
-        self.client._http_session.close = mock.CoroutineMock()
-        asyncio_mock.sleep = mock.CoroutineMock()
-
-        await self.client._close_http_session()
-
-        self.client._http_session.close.assert_called()
-        asyncio_mock.sleep.assert_called_with(self.client._HTTP_SESSION_CLOSE_TIMEOUT)
-
-    @mock.patch("aiocometd.client.asyncio")
-    async def test_close_http_session_already_closed(self, asyncio_mock):
-        self.client._http_session = mock.MagicMock()
-        self.client._http_session.closed = True
-        self.client._http_session.close = mock.CoroutineMock()
-        asyncio_mock.sleep = mock.CoroutineMock()
-
-        await self.client._close_http_session()
-
-        self.client._http_session.close.assert_not_called()
-        asyncio_mock.sleep.assert_not_called()
-
-    @mock.patch("aiocometd.client.ConnectionType", new=MockConnectionType)
-    def test_pick_connection_type(self):
-        self.client._connection_types = [
+def test_pick_connection_type(cometd_client):
+    with mock.patch("aiocometd.client.ConnectionType", new=MockConnectionType):
+        cometd_client._connection_types = [
             MockConnectionType.TYPE1,
             MockConnectionType.TYPE2,
             MockConnectionType.TYPE3,
@@ -172,13 +171,14 @@ class TestClient(TestCase):
             MockConnectionType.TYPE4.value,
         ]
 
-        result = self.client._pick_connection_type(supported_types)
+        result = cometd_client._pick_connection_type(supported_types)
 
-        self.assertEqual(result, MockConnectionType.TYPE2)
+        assert result == MockConnectionType.TYPE2
 
-    @mock.patch("aiocometd.client.ConnectionType", new=MockConnectionType)
-    def test_pick_connection_type_without_overlap(self):
-        self.client._connection_types = [
+
+def test_pick_connection_type_without_overlap(cometd_client):
+    with mock.patch("aiocometd.client.ConnectionType", new=MockConnectionType):
+        cometd_client._connection_types = [
             MockConnectionType.TYPE1,
             MockConnectionType.TYPE2,
         ]
@@ -187,820 +187,772 @@ class TestClient(TestCase):
             MockConnectionType.TYPE4.value,
         ]
 
-        result = self.client._pick_connection_type(supported_types)
+        result = cometd_client._pick_connection_type(supported_types)
 
-        self.assertIsNone(result)
+        assert result is None
 
-    @mock.patch("aiocometd.client.create_transport")
-    async def test_negotiate_transport_default(self, create_transport):
-        response = {
-            "supportedConnectionTypes": [DEFAULT_CONNECTION_TYPE.value],
-            "successful": True,
-        }
-        transport = mock.MagicMock()
-        transport.connection_type = DEFAULT_CONNECTION_TYPE
-        transport.handshake = mock.CoroutineMock(return_value=response)
-        create_transport.return_value = transport
-        self.client._pick_connection_type = mock.MagicMock(
-            return_value=DEFAULT_CONNECTION_TYPE
-        )
-        self.client._verify_response = mock.MagicMock()
-        self.client.extensions = object()
-        self.client.auth = object()
-        http_session = object()
-        self.client._get_http_session = mock.CoroutineMock(return_value=http_session)
 
-        with self.assertLogs("aiocometd.client", "DEBUG") as log:
-            result = await self.client._negotiate_transport()
+async def test_negotiate_transport_default(
+    cometd_client, mock_transport, mock_create_transport, caplog
+):
+    caplog.set_level(logging.INFO)
 
-        self.assertEqual(result, transport)
-        create_transport.assert_called_with(
-            DEFAULT_CONNECTION_TYPE,
-            url=self.client.url,
-            incoming_queue=self.client._incoming_queue,
-            ssl=self.client.ssl,
-            extensions=self.client.extensions,
-            auth=self.client.auth,
-            json_dumps=self.client._json_dumps,
-            json_loads=self.client._json_loads,
-            http_session=http_session,
-            loop=None,
-        )
-        transport.handshake.assert_called_with(self.client._connection_types)
-        self.client._verify_response.assert_called_with(response)
-        self.client._pick_connection_type.assert_called_with(
-            response["supportedConnectionTypes"]
-        )
-        log_message = (
-            "INFO:aiocometd.client:"
-            "Connection types supported by the server: {!r}".format(
-                response["supportedConnectionTypes"]
-            )
-        )
-        self.assertEqual(log.output, [log_message])
+    # NOTE: setup the _get_http_session and transport class
+    response = {
+        "supportedConnectionTypes": [DEFAULT_CONNECTION_TYPE.value],
+        "successful": True,
+    }
+    cometd_client._pick_connection_type = mock.MagicMock(
+        return_value=DEFAULT_CONNECTION_TYPE
+    )
+    cometd_client._verify_response = mock.MagicMock()
+    cometd_client.extensions = object()
+    cometd_client.auth = object()
+    http_session = object()
 
-    @mock.patch("aiocometd.client.create_transport")
-    async def test_negotiate_transport_error(self, create_transport):
-        response = {
-            "supportedConnectionTypes": [DEFAULT_CONNECTION_TYPE.value],
-            "successful": True,
-        }
-        transport = mock.MagicMock()
-        transport.connection_type = DEFAULT_CONNECTION_TYPE
-        transport.handshake = mock.CoroutineMock(return_value=response)
-        transport.close = mock.CoroutineMock()
-        create_transport.return_value = transport
-        self.client._pick_connection_type = mock.MagicMock(return_value=None)
-        self.client.extensions = object()
-        self.client.auth = object()
-        http_session = object()
-        self.client._get_http_session = mock.CoroutineMock(return_value=http_session)
+    cometd_client._get_http_session = mock.AsyncMock(return_value=http_session)
+    result = await cometd_client._negotiate_transport()
 
-        with self.assertRaisesRegex(
-            ClientError,
-            "None of the connection types offered " "by the server are supported.",
-        ):
-            with self.assertLogs("aiocometd.client", "DEBUG") as log:
-                await self.client._negotiate_transport()
+    assert result == mock_transport
+    mock_create_transport.assert_called_with(
+        DEFAULT_CONNECTION_TYPE,
+        url=cometd_client.url,
+        incoming_queue=cometd_client._incoming_queue,
+        ssl=cometd_client.ssl,
+        extensions=cometd_client.extensions,
+        auth=cometd_client.auth,
+        json_dumps=cometd_client._json_dumps,
+        json_loads=cometd_client._json_loads,
+        http_session=http_session,
+    )
+    mock_transport.handshake.assert_awaited_with(
+        cometd_client._connection_types
+    )
+    cometd_client._verify_response.assert_called_with(response)
+    cometd_client._pick_connection_type.assert_called_with(
+        response["supportedConnectionTypes"]
+    )
+    log_message = "Connection types supported by the server: {!r}".format(
+        response["supportedConnectionTypes"]
+    )
+    assert log_message in caplog.messages
 
-        create_transport.assert_called_with(
-            DEFAULT_CONNECTION_TYPE,
-            url=self.client.url,
-            incoming_queue=self.client._incoming_queue,
-            ssl=self.client.ssl,
-            extensions=self.client.extensions,
-            auth=self.client.auth,
-            json_dumps=self.client._json_dumps,
-            json_loads=self.client._json_loads,
-            http_session=http_session,
-            loop=None,
-        )
-        transport.handshake.assert_called_with(self.client._connection_types)
-        self.client._pick_connection_type.assert_called_with(
-            response["supportedConnectionTypes"]
-        )
-        transport.close.assert_called()
-        log_message = (
-            "INFO:aiocometd.client:"
-            "Connection types supported by the server: {!r}".format(
-                response["supportedConnectionTypes"]
-            )
-        )
-        self.assertEqual(log.output, [log_message])
 
-    @mock.patch("aiocometd.client.create_transport")
-    async def test_negotiate_transport_non_default(self, create_transport):
-        non_default_type = ConnectionType.WEBSOCKET
-        self.client._connection_types = [non_default_type]
-        response = {
-            "supportedConnectionTypes": [
-                DEFAULT_CONNECTION_TYPE.value,
-                non_default_type.value,
-            ],
-            "successful": True,
-        }
-        transport1 = mock.MagicMock()
-        transport1.connection_type = DEFAULT_CONNECTION_TYPE
-        transport1.client_id = "client_id"
-        transport1.handshake = mock.CoroutineMock(return_value=response)
-        transport1.reconnect_advice = object()
-        transport1.close = mock.CoroutineMock()
-        transport2 = mock.MagicMock()
-        transport2.connection_type = non_default_type
-        transport2.client_id = None
-        create_transport.side_effect = [transport1, transport2]
-        self.client._pick_connection_type = mock.MagicMock(
-            return_value=non_default_type
-        )
-        self.client._verify_response = mock.MagicMock()
-        self.client.extensions = object()
-        self.client.auth = object()
-        http_session = object()
-        self.client._get_http_session = mock.CoroutineMock(return_value=http_session)
+async def test_negotiate_transport_error(
+    cometd_client, mock_transport, mock_create_transport, caplog
+):
+    caplog.set_level(logging.INFO)
+    response = {
+        "supportedConnectionTypes": [DEFAULT_CONNECTION_TYPE.value],
+        "successful": True,
+    }
+    mock_transport.connection_type = DEFAULT_CONNECTION_TYPE
+    mock_transport.handshake = mock.AsyncMock(return_value=response)
+    cometd_client._pick_connection_type = mock.MagicMock(return_value=None)
+    cometd_client.extensions = object()
+    cometd_client.auth = object()
+    http_session = object()
+    cometd_client._get_http_session = mock.AsyncMock(return_value=http_session)
 
-        with self.assertLogs("aiocometd.client", "DEBUG") as log:
-            result = await self.client._negotiate_transport()
+    with pytest.raises(
+        ClientError,
+        match="None of the connection types offered "
+        "by the server are supported.",
+    ):
+        await cometd_client._negotiate_transport()
 
-        self.assertEqual(result, transport2)
-        create_transport.assert_has_calls(
-            [
-                mock.call(
-                    DEFAULT_CONNECTION_TYPE,
-                    url=self.client.url,
-                    incoming_queue=self.client._incoming_queue,
-                    ssl=self.client.ssl,
-                    extensions=self.client.extensions,
-                    auth=self.client.auth,
-                    json_dumps=self.client._json_dumps,
-                    json_loads=self.client._json_loads,
-                    http_session=http_session,
-                    loop=None,
-                ),
-                mock.call(
-                    non_default_type,
-                    url=self.client.url,
-                    incoming_queue=self.client._incoming_queue,
-                    client_id=transport1.client_id,
-                    ssl=self.client.ssl,
-                    extensions=self.client.extensions,
-                    auth=self.client.auth,
-                    json_dumps=self.client._json_dumps,
-                    json_loads=self.client._json_loads,
-                    reconnect_advice=transport1.reconnect_advice,
-                    http_session=http_session,
-                    loop=None,
-                ),
-            ]
-        )
-        transport1.handshake.assert_called_with(self.client._connection_types)
-        self.client._verify_response.assert_called_with(response)
-        self.client._pick_connection_type.assert_called_with(
-            response["supportedConnectionTypes"]
-        )
-        transport1.close.assert_called()
-        log_message = (
-            "INFO:aiocometd.client:"
-            "Connection types supported by the server: {!r}".format(
-                response["supportedConnectionTypes"]
-            )
-        )
-        self.assertEqual(log.output, [log_message])
+    mock_create_transport.assert_called_with(
+        DEFAULT_CONNECTION_TYPE,
+        url=cometd_client.url,
+        incoming_queue=cometd_client._incoming_queue,
+        ssl=cometd_client.ssl,
+        extensions=cometd_client.extensions,
+        auth=cometd_client.auth,
+        json_dumps=cometd_client._json_dumps,
+        json_loads=cometd_client._json_loads,
+        http_session=http_session,
+    )
+    mock_transport.handshake.assert_awaited_with(
+        cometd_client._connection_types
+    )
+    cometd_client._pick_connection_type.assert_called_with(
+        response["supportedConnectionTypes"]
+    )
+    mock_transport.close.assert_awaited()
+    log_message = "Connection types supported by the server: {!r}".format(
+        response["supportedConnectionTypes"]
+    )
+    assert log_message in caplog.messages
 
-    async def test_open(self):
-        transport = mock.MagicMock()
-        transport.connection_type = ConnectionType.LONG_POLLING
-        connect_result = object()
-        transport.connect = mock.CoroutineMock(return_value=connect_result)
-        self.client._negotiate_transport = mock.CoroutineMock(return_value=transport)
-        self.client._verify_response = mock.MagicMock()
-        self.client._closed = True
 
-        with self.assertLogs("aiocometd.client", "DEBUG") as log:
-            await self.client.open()
+async def test_negotiate_transport_non_default(
+    cometd_client, mock_transport, mock_create_transport, caplog
+):
+    caplog.set_level(logging.INFO)
+    non_default_type = ConnectionType.WEBSOCKET
+    cometd_client._connection_types = [non_default_type]
+    response = {
+        "supportedConnectionTypes": [
+            DEFAULT_CONNECTION_TYPE.value,
+            non_default_type.value,
+        ],
+        "successful": True,
+    }
+    mock_transport_default = mock.MagicMock()
+    mock_transport_default.connection_type = DEFAULT_CONNECTION_TYPE
+    mock_transport_default.client_id = "client_id"
+    mock_transport_default.handshake = mock.AsyncMock(return_value=response)
+    mock_transport_default.reconnect_advice = object()
+    mock_transport_default.close = mock.AsyncMock()
 
-        self.client._negotiate_transport.assert_called()
-        transport.connect.assert_called()
-        self.client._verify_response.assert_called_with(connect_result)
-        self.assertEqual(
-            log.output,
-            [
-                "INFO:aiocometd.client:Opening client with connection "
-                "types {!r} ...".format(
-                    [t.value for t in self.client._connection_types]
-                ),
-                "INFO:aiocometd.client:Client opened with connection_type {!r}".format(
-                    self.client.connection_type.value
-                ),
-            ],
-        )
+    mock_transport_non_default = mock.MagicMock()
+    mock_transport_non_default.connection_type = non_default_type
+    mock_transport_non_default.client_id = None
 
-    async def test_open_if_already_open(self):
-        transport = mock.MagicMock()
-        connect_result = object()
-        transport.connect = mock.CoroutineMock(return_value=connect_result)
-        self.client._negotiate_transport = mock.CoroutineMock(return_value=transport)
-        self.client._verify_response = mock.MagicMock()
-        self.client._closed = False
+    mock_create_transport.side_effect = [
+        mock_transport_default,
+        mock_transport_non_default,
+    ]
+    cometd_client._pick_connection_type = mock.MagicMock(
+        return_value=non_default_type
+    )
+    cometd_client._verify_response = mock.MagicMock()
+    cometd_client.extensions = object()
+    cometd_client.auth = object()
+    http_session = object()
+    cometd_client._get_http_session = mock.AsyncMock(return_value=http_session)
 
-        with self.assertRaisesRegex(ClientInvalidOperation, "Client is already open."):
-            await self.client.open()
+    result = await cometd_client._negotiate_transport()
 
-        self.client._negotiate_transport.assert_not_called()
-        transport.connect.assert_not_called()
-        self.client._verify_response.assert_not_called()
-
-    async def test_close(self):
-        self.client._closed = False
-        self.client._transport = mock.MagicMock()
-        self.client._transport.client_id = "client_id"
-        self.client._transport.disconnect = mock.CoroutineMock()
-        self.client._transport.close = mock.CoroutineMock()
-        self.client._close_http_session = mock.CoroutineMock()
-        expected_log = [
-            "INFO:aiocometd.client:Closing client...",
-            "INFO:aiocometd.client:Client closed.",
+    assert result == mock_transport_non_default
+    mock_create_transport.assert_has_calls(
+        [
+            mock.call(
+                DEFAULT_CONNECTION_TYPE,
+                url=cometd_client.url,
+                incoming_queue=cometd_client._incoming_queue,
+                ssl=cometd_client.ssl,
+                extensions=cometd_client.extensions,
+                auth=cometd_client.auth,
+                json_dumps=cometd_client._json_dumps,
+                json_loads=cometd_client._json_loads,
+                http_session=http_session,
+            ),
+            mock.call(
+                non_default_type,
+                url=cometd_client.url,
+                incoming_queue=cometd_client._incoming_queue,
+                client_id=mock_transport_default.client_id,
+                ssl=cometd_client.ssl,
+                extensions=cometd_client.extensions,
+                auth=cometd_client.auth,
+                json_dumps=cometd_client._json_dumps,
+                json_loads=cometd_client._json_loads,
+                reconnect_advice=mock_transport_default.reconnect_advice,
+                http_session=http_session,
+            ),
         ]
+    )
+    mock_transport_default.handshake.assert_awaited_with(
+        cometd_client._connection_types
+    )
+    cometd_client._verify_response.assert_called_with(response)
+    cometd_client._pick_connection_type.assert_called_with(
+        response["supportedConnectionTypes"]
+    )
+    mock_transport_default.close.assert_awaited()
+    log_message = "Connection types supported by the server: {!r}".format(
+        response["supportedConnectionTypes"]
+    )
+    assert log_message in caplog.messages
 
-        with self.assertLogs("aiocometd.client", "DEBUG") as log:
-            await self.client.close()
 
-        self.client._transport.disconnect.assert_called()
-        self.client._transport.close.assert_called()
-        self.client._close_http_session.assert_called()
-        self.assertTrue(self.client.closed)
-        self.assertEqual(log.output, expected_log)
+async def test_open(cometd_client, mock_transport, caplog):
+    caplog.set_level(logging.INFO)
 
-    async def test_close_with_pending_messages(self):
-        self.client._closed = False
-        self.client._transport = mock.MagicMock()
-        self.client._transport.client_id = "client_id"
-        self.client._transport.disconnect = mock.CoroutineMock()
-        self.client._transport.close = mock.CoroutineMock()
-        self.client._close_http_session = mock.CoroutineMock()
-        self.client._incoming_queue = asyncio.Queue()
-        self.client._incoming_queue.put_nowait(object())
-        expected_log = [
-            "WARNING:aiocometd.client:Closing client while {} messages are "
-            "still pending...".format(self.client.pending_count),
-            "INFO:aiocometd.client:Client closed.",
-        ]
+    mock_transport.connection_type = ConnectionType.LONG_POLLING
+    cometd_client._negotiate_transport = mock.AsyncMock(
+        return_value=mock_transport
+    )
+    cometd_client._verify_response = mock.MagicMock()
+    cometd_client._closed = True
 
-        with self.assertLogs("aiocometd.client", "DEBUG") as log:
-            await self.client.close()
+    await cometd_client.open()
 
-        self.client._transport.disconnect.assert_called()
-        self.client._transport.close.assert_called()
-        self.client._close_http_session.assert_called()
-        self.assertTrue(self.client.closed)
-        self.assertEqual(log.output, expected_log)
+    cometd_client._negotiate_transport.assert_awaited()
 
-    async def test_close_if_already_closed(self):
-        self.client._closed = True
-        self.client._transport = mock.MagicMock()
-        self.client._transport.client_id = "client_id"
-        self.client._transport.disconnect = mock.CoroutineMock()
-        self.client._transport.close = mock.CoroutineMock()
-        self.client._close_http_session = mock.CoroutineMock()
-
-        await self.client.close()
-
-        self.client._transport.disconnect.assert_not_called()
-        self.client._transport.close.assert_not_called()
-        self.client._close_http_session.assert_not_called()
-        self.assertTrue(self.client.closed)
-
-    async def test_close_on_transport_error(self):
-        self.client._closed = False
-        self.client._transport = mock.MagicMock()
-        self.client._transport.client_id = "client_id"
-        error = TransportError("description")
-        self.client._transport.disconnect = mock.CoroutineMock(side_effect=error)
-        self.client._transport.close = mock.CoroutineMock()
-        self.client._close_http_session = mock.CoroutineMock()
-        expected_log = [
-            "INFO:aiocometd.client:Closing client...",
-            "INFO:aiocometd.client:Client closed.",
-        ]
-
-        with self.assertLogs("aiocometd.client", "DEBUG") as log:
-            with self.assertRaisesRegex(TransportError, str(error)):
-                await self.client.close()
-
-        self.assertEqual(log.output, expected_log)
-        self.client._transport.disconnect.assert_called()
-        self.client._transport.close.assert_not_called()
-        self.client._close_http_session.assert_not_called()
-        self.assertTrue(self.client.closed)
-
-    async def test_close_no_transport(self):
-        self.client._closed = False
-        self.client._transport = None
-        self.client._close_http_session = mock.CoroutineMock()
-        expected_log = [
-            "INFO:aiocometd.client:Closing client...",
-            "INFO:aiocometd.client:Client closed.",
-        ]
-
-        with self.assertLogs("aiocometd.client", "DEBUG") as log:
-            await self.client.close()
-
-        self.assertTrue(self.client.closed)
-        self.assertEqual(log.output, expected_log)
-        self.client._close_http_session.assert_called()
-
-    async def test_subscribe(self):
-        response = {
-            "channel": MetaChannel.SUBSCRIBE,
-            "successful": True,
-            "subscription": "channel1",
-            "id": "1",
-        }
-        self.client._transport = mock.MagicMock()
-        self.client._transport.subscribe = mock.CoroutineMock(return_value=response)
-        self.client._check_server_disconnected = mock.CoroutineMock()
-        self.client._closed = False
-
-        with self.assertLogs("aiocometd.client", "DEBUG") as log:
-            await self.client.subscribe("channel1")
-
-        self.client._transport.subscribe.assert_called_with("channel1")
-        self.assertEqual(
-            log.output,
-            ["INFO:aiocometd.client:Subscribed to channel {}".format("channel1")],
+    mock_transport.connect.assert_awaited()
+    expected_opening_message = (
+        "Opening client with connection types {!r} ...".format(
+            [t.value for t in cometd_client._connection_types]
         )
-        self.client._check_server_disconnected.assert_called()
+    )
+    assert expected_opening_message in caplog.messages
 
-    async def test_subscribe_on_closed(self):
-        self.client._closed = True
-        self.client._check_server_disconnected = mock.CoroutineMock()
+    expected_client_message = "Client opened with connection_type {!r}".format(
+        cometd_client.connection_type.value
+    )
+    assert expected_client_message in caplog.messages
 
-        with self.assertRaisesRegex(
-            ClientInvalidOperation,
-            "Can't send subscribe request while, " "the client is closed.",
-        ):
-            await self.client.subscribe("channel1")
 
-        self.client._check_server_disconnected.assert_not_called()
+async def test_open_if_already_open(cometd_client, mock_transport):
+    cometd_client._negotiate_transport = mock.AsyncMock(
+        return_value=mock_transport
+    )
+    cometd_client._verify_response = mock.MagicMock()
+    cometd_client._closed = False
 
-    async def test_subscribe_error(self):
-        response = {
-            "channel": MetaChannel.SUBSCRIBE,
-            "successful": False,
-            "subscription": "channel1",
-            "id": "1",
-        }
-        self.client._transport = mock.MagicMock()
-        self.client._transport.subscribe = mock.CoroutineMock(return_value=response)
-        self.client._check_server_disconnected = mock.CoroutineMock()
-        self.client._closed = False
-        error = ServerError("Subscribe request failed.", response)
+    with pytest.raises(ClientInvalidOperation):
+        await cometd_client.open()
 
-        with self.assertRaisesRegex(ServerError, str(error)):
-            await self.client.subscribe("channel1")
+    cometd_client._negotiate_transport.assert_not_called()
+    mock_transport.connect.assert_not_awaited()
+    cometd_client._verify_response.assert_not_called()
 
-        self.client._transport.subscribe.assert_called_with("channel1")
-        self.client._check_server_disconnected.assert_called()
 
-    async def test_unsubscribe(self):
-        response = {
-            "channel": MetaChannel.UNSUBSCRIBE,
-            "successful": True,
-            "subscription": "channel1",
-            "id": "1",
-        }
-        self.client._transport = mock.MagicMock()
-        self.client._transport.unsubscribe = mock.CoroutineMock(return_value=response)
-        self.client._check_server_disconnected = mock.CoroutineMock()
-        self.client._closed = False
+async def test_close(cometd_client, caplog):
+    caplog.set_level(logging.INFO)
 
-        with self.assertLogs("aiocometd.client", "DEBUG") as log:
-            await self.client.unsubscribe("channel1")
+    cometd_client._closed = False
+    cometd_client._transport = mock.MagicMock()
+    cometd_client._transport.client_id = "client_id"
+    cometd_client._transport.disconnect = mock.AsyncMock()
+    cometd_client._transport.close = mock.AsyncMock()
+    cometd_client._close_http_session = mock.AsyncMock()
 
-        self.client._transport.unsubscribe.assert_called_with("channel1")
-        self.assertEqual(
-            log.output,
-            ["INFO:aiocometd.client:Unsubscribed from channel {}".format("channel1")],
+    await cometd_client.close()
+
+    cometd_client._transport.disconnect.assert_awaited()
+    cometd_client._transport.close.assert_awaited()
+    cometd_client._close_http_session.assert_awaited()
+    assert cometd_client.closed == True
+
+    expected_log = [
+        "Closing client...",
+        "Client closed.",
+    ]
+    assert expected_log == caplog.messages
+
+
+async def test_close_with_pending_messages(cometd_client, caplog):
+    caplog.set_level(logging.INFO)
+
+    cometd_client._closed = False
+    cometd_client._transport = mock.MagicMock()
+    cometd_client._transport.client_id = "client_id"
+    cometd_client._transport.disconnect = mock.AsyncMock()
+    cometd_client._transport.close = mock.AsyncMock()
+    cometd_client._close_http_session = mock.AsyncMock()
+    cometd_client._incoming_queue = asyncio.Queue()
+    cometd_client._incoming_queue.put_nowait(object())
+
+    await cometd_client.close()
+
+    cometd_client._transport.disconnect.assert_awaited()
+    cometd_client._transport.close.assert_awaited()
+    cometd_client._close_http_session.assert_awaited()
+    assert cometd_client.closed == True
+
+    expected_log = [
+        "Closing client while {} messages are still pending...".format(
+            cometd_client.pending_count
+        ),
+        "Client closed.",
+    ]
+    assert expected_log == caplog.messages
+
+
+async def test_close_if_already_closed(cometd_client):
+    cometd_client._closed = True
+    cometd_client._transport = mock.MagicMock()
+    cometd_client._transport.client_id = "client_id"
+    cometd_client._transport.disconnect = mock.AsyncMock()
+    cometd_client._transport.close = mock.AsyncMock()
+    cometd_client._close_http_session = mock.AsyncMock()
+
+    await cometd_client.close()
+
+    cometd_client._transport.disconnect.assert_not_called()
+    cometd_client._transport.close.assert_not_called()
+    cometd_client._close_http_session.assert_not_called()
+
+    assert cometd_client.closed == True
+
+
+async def test_close_on_transport_error(cometd_client, caplog):
+    caplog.set_level(logging.INFO)
+
+    cometd_client._closed = False
+    cometd_client._transport = mock.MagicMock()
+    cometd_client._transport.client_id = "client_id"
+    error = TransportError("description")
+    cometd_client._transport.disconnect = mock.AsyncMock(side_effect=error)
+    cometd_client._transport.close = mock.AsyncMock()
+    cometd_client._close_http_session = mock.AsyncMock()
+
+    with pytest.raises(TransportError, match=str(error)):
+        await cometd_client.close()
+
+    assert cometd_client.closed == True
+    cometd_client._transport.disconnect.assert_awaited()
+    cometd_client._transport.close.assert_not_awaited()
+    cometd_client._close_http_session.assert_not_awaited()
+
+    expected_log = [
+        "Closing client...",
+        "Client closed.",
+    ]
+    assert expected_log == caplog.messages
+
+
+async def test_close_no_transport(cometd_client, caplog):
+    caplog.set_level(logging.INFO)
+
+    cometd_client._closed = False
+    cometd_client._transport = None
+    cometd_client._close_http_session = mock.AsyncMock()
+
+    await cometd_client.close()
+    assert cometd_client.closed == True
+    cometd_client._close_http_session.assert_awaited()
+
+    expected_log = [
+        "Closing client...",
+        "Client closed.",
+    ]
+    assert expected_log == caplog.messages
+
+
+async def test_subscribe(cometd_client, caplog):
+    caplog.set_level(logging.INFO)
+
+    response = {
+        "channel": MetaChannel.SUBSCRIBE,
+        "successful": True,
+        "subscription": "channel1",
+        "id": "1",
+    }
+    cometd_client._transport = mock.MagicMock()
+    cometd_client._transport.subscribe = mock.AsyncMock(return_value=response)
+    cometd_client._check_server_disconnected = mock.AsyncMock()
+    cometd_client._closed = False
+
+    await cometd_client.subscribe("channel1")
+
+    cometd_client._transport.subscribe.assert_awaited_with("channel1")
+    expected_logs = "Subscribed to channel channel1"
+    assert expected_logs in caplog.messages
+
+    cometd_client._check_server_disconnected.assert_awaited()
+
+
+async def test_subscribe_on_closed(cometd_client):
+    cometd_client._closed = True
+    cometd_client._check_server_disconnected = mock.AsyncMock()
+
+    with pytest.raises(
+        ClientInvalidOperation,
+        match="Can't send subscribe request while, the client is closed.",
+    ):
+        await cometd_client.subscribe("channel1")
+
+    cometd_client._check_server_disconnected.assert_not_awaited()
+
+
+async def test_subscribe_error(cometd_client):
+    response = {
+        "channel": MetaChannel.SUBSCRIBE,
+        "successful": False,
+        "subscription": "channel1",
+        "id": "1",
+    }
+    cometd_client._transport = mock.MagicMock()
+    cometd_client._transport.subscribe = mock.AsyncMock(return_value=response)
+    cometd_client._check_server_disconnected = mock.AsyncMock()
+    cometd_client._closed = False
+    error = ServerError("Subscribe request failed.", response)
+
+    with pytest.raises(ServerError, match=str(error)):
+        await cometd_client.subscribe("channel1")
+
+    cometd_client._transport.subscribe.assert_awaited_with("channel1")
+    cometd_client._check_server_disconnected.assert_awaited()
+
+
+async def test_unsubscribe(cometd_client, caplog):
+    caplog.set_level(logging.INFO)
+
+    response = {
+        "channel": MetaChannel.UNSUBSCRIBE,
+        "successful": True,
+        "subscription": "channel1",
+        "id": "1",
+    }
+    cometd_client._transport = mock.MagicMock()
+    cometd_client._transport.unsubscribe = mock.AsyncMock(
+        return_value=response
+    )
+    cometd_client._check_server_disconnected = mock.AsyncMock()
+    cometd_client._closed = False
+
+    await cometd_client.unsubscribe("channel1")
+
+    cometd_client._transport.unsubscribe.assert_awaited_with("channel1")
+    expected_logs = "Unsubscribed from channel {}".format("channel1")
+
+    assert expected_logs in caplog.messages
+    cometd_client._check_server_disconnected.assert_awaited()
+
+
+async def test_unsubscribe_on_closed(cometd_client):
+    cometd_client._closed = True
+    cometd_client._check_server_disconnected = mock.AsyncMock()
+
+    with pytest.raises(
+        ClientInvalidOperation,
+        match="Can't send unsubscribe request while, the client is closed.",
+    ):
+        await cometd_client.unsubscribe("channel1")
+
+    cometd_client._check_server_disconnected.assert_not_awaited()
+
+
+async def test_unsubscribe_error(cometd_client):
+    response = {
+        "channel": MetaChannel.UNSUBSCRIBE,
+        "successful": False,
+        "subscription": "channel1",
+        "id": "1",
+    }
+    cometd_client._transport = mock.MagicMock()
+    cometd_client._transport.unsubscribe = mock.AsyncMock(
+        return_value=response
+    )
+    cometd_client._check_server_disconnected = mock.AsyncMock()
+    cometd_client._closed = False
+    error = ServerError("Unsubscribe request failed.", response)
+
+    with pytest.raises(ServerError, match=str(error)):
+        await cometd_client.unsubscribe("channel1")
+
+    cometd_client._transport.unsubscribe.assert_awaited_with("channel1")
+    cometd_client._check_server_disconnected.assert_awaited()
+
+
+async def test_publish(cometd_client):
+    response = {"channel": "/channel1", "successful": True, "id": "1"}
+    data = {}
+    cometd_client._transport = mock.MagicMock()
+    cometd_client._transport.publish = mock.AsyncMock(return_value=response)
+    cometd_client._check_server_disconnected = mock.AsyncMock()
+    cometd_client._closed = False
+
+    result = await cometd_client.publish("channel1", data)
+
+    assert result == response
+    cometd_client._transport.publish.assert_awaited_with("channel1", data)
+    cometd_client._check_server_disconnected.assert_awaited()
+
+
+async def test_publish_on_closed(cometd_client):
+    cometd_client._closed = True
+    cometd_client._check_server_disconnected = mock.AsyncMock()
+
+    with pytest.raises(
+        ClientInvalidOperation,
+        match="Can't publish data while, the client is closed.",
+    ):
+        await cometd_client.publish("channel1", {})
+
+    cometd_client._check_server_disconnected.assert_not_awaited()
+
+
+async def test_publish_error(cometd_client):
+    response = {"channel": "/channel1", "successful": False, "id": "1"}
+    data = {}
+    cometd_client._transport = mock.MagicMock()
+    cometd_client._transport.publish = mock.AsyncMock(return_value=response)
+    cometd_client._check_server_disconnected = mock.AsyncMock()
+    cometd_client._closed = False
+    error = ServerError("Publish request failed.", response)
+
+    with pytest.raises(ServerError, match=str(error)):
+        await cometd_client.publish("channel1", data)
+
+    cometd_client._transport.publish.assert_awaited_with("channel1", data)
+    cometd_client._check_server_disconnected.assert_awaited()
+
+
+def test_repr(cometd_client):
+    cometd_client.url = "http://example.com"
+    expected = (
+        "Client({}, {}, connection_timeout={}, ssl={}, "
+        "max_pending_count={}, extensions={}, auth={})".format(
+            reprlib.repr(cometd_client.url),
+            reprlib.repr(cometd_client._connection_types),
+            reprlib.repr(cometd_client.connection_timeout),
+            reprlib.repr(cometd_client.ssl),
+            reprlib.repr(cometd_client._max_pending_count),
+            reprlib.repr(cometd_client.extensions),
+            reprlib.repr(cometd_client.auth),
         )
-        self.client._check_server_disconnected.assert_called()
+    )
 
-    async def test_unsubscribe_on_closed(self):
-        self.client._closed = True
-        self.client._check_server_disconnected = mock.CoroutineMock()
+    result = repr(cometd_client)
 
-        with self.assertRaisesRegex(
-            ClientInvalidOperation,
-            "Can't send unsubscribe request while, " "the client is closed.",
-        ):
-            await self.client.unsubscribe("channel1")
+    assert result == expected
 
-        self.client._check_server_disconnected.assert_not_called()
 
-    async def test_unsubscribe_error(self):
-        response = {
-            "channel": MetaChannel.UNSUBSCRIBE,
-            "successful": False,
-            "subscription": "channel1",
-            "id": "1",
-        }
-        self.client._transport = mock.MagicMock()
-        self.client._transport.unsubscribe = mock.CoroutineMock(return_value=response)
-        self.client._check_server_disconnected = mock.CoroutineMock()
-        self.client._closed = False
-        error = ServerError("Unsubscribe request failed.", response)
+def test_verify_response_on_success(cometd_client):
+    cometd_client._raise_server_error = mock.MagicMock()
+    response = {"channel": "/channel1", "successful": True, "id": "1"}
 
-        with self.assertRaisesRegex(ServerError, str(error)):
-            await self.client.unsubscribe("channel1")
+    cometd_client._verify_response(response)
 
-        self.client._transport.unsubscribe.assert_called_with("channel1")
-        self.client._check_server_disconnected.assert_called()
+    cometd_client._raise_server_error.assert_not_called()
 
-    async def test_publish(self):
-        response = {"channel": "/channel1", "successful": True, "id": "1"}
-        data = {}
-        self.client._transport = mock.MagicMock()
-        self.client._transport.publish = mock.CoroutineMock(return_value=response)
-        self.client._check_server_disconnected = mock.CoroutineMock()
-        self.client._closed = False
 
-        result = await self.client.publish("channel1", data)
+def test_verify_response_on_error(cometd_client):
+    cometd_client._raise_server_error = mock.MagicMock()
+    response = {"channel": "/channel1", "successful": False, "id": "1"}
 
-        self.assertEqual(result, response)
-        self.client._transport.publish.assert_called_with("channel1", data)
-        self.client._check_server_disconnected.assert_called()
+    cometd_client._verify_response(response)
 
-    async def test_publish_on_closed(self):
-        self.client._closed = True
-        self.client._check_server_disconnected = mock.CoroutineMock()
+    cometd_client._raise_server_error.assert_called_with(response)
 
-        with self.assertRaisesRegex(
-            ClientInvalidOperation, "Can't publish data while, " "the client is closed."
-        ):
-            await self.client.publish("channel1", {})
 
-        self.client._check_server_disconnected.assert_not_called()
+def test_verify_response_no_successful_status(cometd_client):
+    cometd_client._raise_server_error = mock.MagicMock()
+    response = {"channel": "/channel1", "id": "1"}
 
-    async def test_publish_error(self):
-        response = {"channel": "/channel1", "successful": False, "id": "1"}
-        data = {}
-        self.client._transport = mock.MagicMock()
-        self.client._transport.publish = mock.CoroutineMock(return_value=response)
-        self.client._check_server_disconnected = mock.CoroutineMock()
-        self.client._closed = False
-        error = ServerError("Publish request failed.", response)
+    cometd_client._verify_response(response)
 
-        with self.assertRaisesRegex(ServerError, str(error)):
-            await self.client.publish("channel1", data)
+    cometd_client._raise_server_error.assert_not_called()
 
-        self.client._transport.publish.assert_called_with("channel1", data)
-        self.client._check_server_disconnected.assert_called()
 
-    def test_repr(self):
-        self.client.url = "http://example.com"
-        expected = (
-            "Client({}, {}, connection_timeout={}, ssl={}, "
-            "max_pending_count={}, extensions={}, auth={},)".format(
-                reprlib.repr(self.client.url),
-                reprlib.repr(self.client._connection_types),
-                reprlib.repr(self.client.connection_timeout),
-                reprlib.repr(self.client.ssl),
-                reprlib.repr(self.client._max_pending_count),
-                reprlib.repr(self.client.extensions),
-                reprlib.repr(self.client.auth),
-            )
-        )
+def test_raise_server_error_meta(cometd_client):
+    response = {
+        "channel": MetaChannel.SUBSCRIBE,
+        "successful": False,
+        "id": "1",
+    }
+    error_message = type(cometd_client)._SERVER_ERROR_MESSAGES[
+        response["channel"]
+    ]
 
-        result = repr(self.client)
+    with pytest.raises(ServerError, match=error_message):
+        cometd_client._raise_server_error(response)
 
-        self.assertEqual(result, expected)
 
-    def test_verify_response_on_success(self):
-        self.client._raise_server_error = mock.MagicMock()
-        response = {"channel": "/channel1", "successful": True, "id": "1"}
+def test_raise_server_error_service(cometd_client):
+    response = {
+        "channel": SERVICE_CHANNEL_PREFIX + "test",
+        "successful": False,
+        "id": "1",
+    }
 
-        self.client._verify_response(response)
+    with pytest.raises(ServerError, match="Service request failed."):
+        cometd_client._raise_server_error(response)
 
-        self.client._raise_server_error.assert_not_called()
 
-    def test_verify_response_on_error(self):
-        self.client._raise_server_error = mock.MagicMock()
-        response = {"channel": "/channel1", "successful": False, "id": "1"}
+def test_raise_server_error_publish(cometd_client):
+    response = {"channel": "/some/channel", "successful": False, "id": "1"}
 
-        self.client._verify_response(response)
+    with pytest.raises(ServerError, match="Publish request failed."):
+        cometd_client._raise_server_error(response)
 
-        self.client._raise_server_error.assert_called_with(response)
 
-    def test_verify_response_no_successful_status(self):
-        self.client._raise_server_error = mock.MagicMock()
-        response = {"channel": "/channel1", "id": "1"}
+async def test_pending_count(cometd_client):
+    cometd_client._incoming_queue = asyncio.Queue()
+    await cometd_client._incoming_queue.put(1)
+    await cometd_client._incoming_queue.put(2)
 
-        self.client._verify_response(response)
+    assert cometd_client.pending_count == 2
 
-        self.client._raise_server_error.assert_not_called()
 
-    def test_raise_server_error_meta(self):
-        response = {"channel": MetaChannel.SUBSCRIBE, "successful": False, "id": "1"}
-        error_message = type(self.client)._SERVER_ERROR_MESSAGES[response["channel"]]
+async def test_pending_count_if_none_queue(cometd_client):
+    cometd_client._incoming_queue = None
 
-        with self.assertRaisesRegex(ServerError, error_message):
-            self.client._raise_server_error(response)
+    assert cometd_client.pending_count == 0
 
-    def test_raise_server_error_service(self):
-        response = {
-            "channel": SERVICE_CHANNEL_PREFIX + "test",
-            "successful": False,
-            "id": "1",
-        }
 
-        with self.assertRaisesRegex(ServerError, "Service request failed."):
-            self.client._raise_server_error(response)
+async def test_has_pending_messages(cometd_client):
+    cometd_client._incoming_queue = asyncio.Queue()
+    await cometd_client._incoming_queue.put(1)
 
-    def test_raise_server_error_publish(self):
-        response = {"channel": "/some/channel", "successful": False, "id": "1"}
+    assert cometd_client.has_pending_messages == True
 
-        with self.assertRaisesRegex(ServerError, "Publish request failed."):
-            self.client._raise_server_error(response)
 
-    async def test_pending_count(self):
-        self.client._incoming_queue = asyncio.Queue()
-        await self.client._incoming_queue.put(1)
-        await self.client._incoming_queue.put(2)
+async def test_has_pending_messages_false(cometd_client):
+    cometd_client._incoming_queue = None
 
-        self.assertEqual(self.client.pending_count, 2)
+    assert cometd_client.has_pending_messages == False
 
-    async def test_pending_count_if_none_queue(self):
-        self.client._incoming_queue = None
 
-        self.assertEqual(self.client.pending_count, 0)
+async def test_receive_on_closed(cometd_client):
+    cometd_client._closed = True
+    cometd_client._incoming_queue = None
 
-    async def test_has_pending_messages(self):
-        self.client._incoming_queue = asyncio.Queue()
-        await self.client._incoming_queue.put(1)
+    with pytest.raises(
+        ClientInvalidOperation,
+        match="The client is closed and there are no pending messages.",
+    ):
+        await cometd_client.receive()
 
-        self.assertTrue(self.client.has_pending_messages)
 
-    async def test_has_pending_messages_false(self):
-        self.client._incoming_queue = None
+async def test_receive_on_closed_and_pending_messages(cometd_client):
+    cometd_client._closed = True
+    response = {"channel": "/channel1", "data": {}, "id": "1"}
+    cometd_client._incoming_queue = mock.MagicMock()
+    cometd_client._incoming_queue.qsize.return_value = 1
+    cometd_client._get_message = mock.AsyncMock(return_value=response)
+    cometd_client._verify_response = mock.MagicMock()
 
-        self.assertFalse(self.client.has_pending_messages)
+    result = await cometd_client.receive()
 
-    async def test_receive_on_closed(self):
-        self.client._closed = True
-        self.client._incoming_queue = None
+    assert result == response
+    cometd_client._get_message.assert_awaited_with(
+        cometd_client.connection_timeout
+    )
+    cometd_client._verify_response.assert_called_with(response)
 
-        with self.assertRaisesRegex(
-            ClientInvalidOperation,
-            "The client is closed and there are " "no pending messages.",
-        ):
-            await self.client.receive()
 
-    async def test_receive_on_closed_and_pending_messages(self):
-        self.client._closed = True
-        response = {"channel": "/channel1", "data": {}, "id": "1"}
-        self.client._incoming_queue = mock.MagicMock()
-        self.client._incoming_queue.qsize.return_value = 1
-        self.client._get_message = mock.CoroutineMock(return_value=response)
-        self.client._verify_response = mock.MagicMock()
+async def test_receive_on_open(cometd_client):
+    cometd_client._closed = False
+    response = {"channel": "/channel1", "data": {}, "id": "1"}
+    cometd_client._incoming_queue = mock.MagicMock()
+    cometd_client._incoming_queue.qsize.return_value = 1
+    cometd_client._get_message = mock.AsyncMock(return_value=response)
+    cometd_client._verify_response = mock.MagicMock()
 
-        result = await self.client.receive()
+    result = await cometd_client.receive()
 
-        self.assertEqual(result, response)
-        self.client._get_message.assert_called_with(self.client.connection_timeout)
-        self.client._verify_response.assert_called_with(response)
+    assert result == response
+    cometd_client._get_message.assert_awaited_with(
+        cometd_client.connection_timeout
+    )
+    cometd_client._verify_response.assert_called_with(response)
 
-    async def test_receive_on_open(self):
-        self.client._closed = False
-        response = {"channel": "/channel1", "data": {}, "id": "1"}
-        self.client._incoming_queue = mock.MagicMock()
-        self.client._incoming_queue.qsize.return_value = 1
-        self.client._get_message = mock.CoroutineMock(return_value=response)
-        self.client._verify_response = mock.MagicMock()
 
-        result = await self.client.receive()
+async def test_receive_on_connection_timeout(cometd_client):
+    cometd_client._closed = True
+    cometd_client._incoming_queue = mock.MagicMock()
+    cometd_client._incoming_queue.qsize.return_value = 1
+    cometd_client._get_message = mock.AsyncMock(
+        side_effect=TransportTimeoutError()
+    )
+    cometd_client._verify_response = mock.MagicMock()
 
-        self.assertEqual(result, response)
-        self.client._get_message.assert_called_with(self.client.connection_timeout)
-        self.client._verify_response.assert_called_with(response)
+    with pytest.raises(TransportTimeoutError):
+        await cometd_client.receive()
 
-    async def test_receive_on_connection_timeout(self):
-        self.client._closed = True
-        self.client._incoming_queue = mock.MagicMock()
-        self.client._incoming_queue.qsize.return_value = 1
-        self.client._get_message = mock.CoroutineMock(
-            side_effect=TransportTimeoutError()
-        )
-        self.client._verify_response = mock.MagicMock()
+    cometd_client._get_message.assert_awaited_with(
+        cometd_client.connection_timeout
+    )
+    cometd_client._verify_response.assert_not_called()
 
-        with self.assertRaises(TransportTimeoutError):
-            await self.client.receive()
 
-        self.client._get_message.assert_called_with(self.client.connection_timeout)
-        self.client._verify_response.assert_not_called()
+async def test_aiter(cometd_client):
+    responses = [
+        {"channel": "/channel1", "data": {}, "id": "1"},
+        {"channel": "/channel2", "data": {}, "id": "2"},
+    ]
+    cometd_client.receive = mock.AsyncMock(
+        side_effect=responses + [ClientInvalidOperation()]
+    )
 
-    async def test_aiter(self):
-        responses = [
-            {"channel": "/channel1", "data": {}, "id": "1"},
-            {"channel": "/channel2", "data": {}, "id": "2"},
-        ]
-        self.client.receive = mock.CoroutineMock(
-            side_effect=responses + [ClientInvalidOperation()]
-        )
+    result = []
+    async for message in cometd_client:
+        result.append(message)
 
-        result = []
-        async for message in self.client:
-            result.append(message)
+    assert result == responses
 
-        self.assertEqual(result, responses)
 
-    async def test_context_manager(self):
-        self.client.open = mock.CoroutineMock()
-        self.client.close = mock.CoroutineMock()
+async def test_context_manager(cometd_client):
+    cometd_client.open = mock.AsyncMock()
+    cometd_client.close = mock.AsyncMock()
 
-        async with self.client as client:
+    async with cometd_client as client:
+        pass
+
+    assert client is cometd_client
+    cometd_client.open.assert_awaited()
+    cometd_client.close.assert_awaited()
+
+
+async def test_context_manager_on_enter_error(cometd_client):
+    cometd_client.open = mock.AsyncMock(side_effect=TransportError())
+    cometd_client.close = mock.AsyncMock()
+
+    with pytest.raises(TransportError):
+        async with cometd_client:
             pass
 
-        self.assertIs(client, self.client)
-        self.client.open.assert_called()
-        self.client.close.assert_called()
+    cometd_client.open.assert_awaited()
+    cometd_client.close.assert_awaited()
 
-    async def test_context_manager_on_enter_error(self):
-        self.client.open = mock.CoroutineMock(side_effect=TransportError())
-        self.client.close = mock.CoroutineMock()
 
-        with self.assertRaises(TransportError):
-            async with self.client:
-                pass
+async def test_get_message_no_timeout(cometd_client, long_task):
+    cometd_client._incoming_queue = mock.MagicMock()
+    cometd_client._incoming_queue.get = mock.AsyncMock(return_value=object())
+    cometd_client._wait_connection_timeout = mock.AsyncMock()
+    cometd_client._transport = mock.MagicMock()
+    cometd_client._transport.wait_for_state = mock.AsyncMock(
+        return_value=long_task(None, timeout=1)
+    )
 
-        self.client.open.assert_called()
-        self.client.close.assert_called()
+    result = await cometd_client._get_message(None)
 
-    @mock.patch("aiocometd.client.asyncio")
-    async def test_wait_connection_timeout_on_timeout(self, asyncio_mock):
-        self.client._transport = mock.MagicMock()
-        self.client._transport.wait_for_state = mock.CoroutineMock()
-        timeout = 2
-        asyncio_mock.wait_for = mock.CoroutineMock(side_effect=asyncio.TimeoutError())
-        asyncio_mock.TimeoutError = asyncio.TimeoutError
+    assert result is cometd_client._incoming_queue.get.return_value
+    cometd_client._wait_connection_timeout.assert_not_awaited()
+    cometd_client._transport.wait_for_state.assert_awaited_with(
+        TransportState.SERVER_DISCONNECTED
+    )
 
-        await self.client._wait_connection_timeout(timeout)
 
-        self.client._transport.wait_for_state.assert_has_calls(
-            [mock.call(TransportState.CONNECTING), mock.call(TransportState.CONNECTED)]
-        )
-        asyncio_mock.wait_for.assert_called()
+async def test_get_message_with_timeout_not_triggered(
+    cometd_client, long_task
+):
+    cometd_client._incoming_queue = mock.MagicMock()
+    get_result = object()
+    cometd_client._incoming_queue.get = mock.AsyncMock(
+        return_value=long_task(get_result, timeout=None)
+    )
+    cometd_client._wait_connection_timeout = mock.AsyncMock(
+        return_value=long_task(None, timeout=1)
+    )
+    cometd_client._transport = mock.MagicMock()
+    cometd_client._transport.wait_for_state = mock.AsyncMock(
+        return_value=long_task(None, timeout=1)
+    )
+    timeout = 2
 
-    @mock.patch("aiocometd.client.asyncio")
-    async def test_wait_connection_timeout_iterations(self, asyncio_mock):
-        self.client._transport = mock.MagicMock()
-        self.client._transport.wait_for_state = mock.CoroutineMock()
-        timeout = 2
-        asyncio_mock.wait_for = mock.CoroutineMock(
-            side_effect=[None, asyncio.TimeoutError()]
-        )
-        asyncio_mock.TimeoutError = asyncio.TimeoutError
+    result = await cometd_client._get_message(timeout)
 
-        await self.client._wait_connection_timeout(timeout)
+    assert result is get_result
+    cometd_client._wait_connection_timeout.assert_awaited_with(timeout)
+    cometd_client._transport.wait_for_state.assert_awaited_with(
+        TransportState.SERVER_DISCONNECTED
+    )
 
-        self.client._transport.wait_for_state.assert_has_calls(
-            [
-                mock.call(TransportState.CONNECTING),
-                mock.call(TransportState.CONNECTED),
-                mock.call(TransportState.CONNECTING),
-                mock.call(TransportState.CONNECTED),
-            ]
-        )
-        asyncio_mock.wait_for.assert_called()
 
-    async def test_get_message_no_timeout(self):
-        self.client._incoming_queue = mock.MagicMock()
-        self.client._incoming_queue.get = mock.CoroutineMock(return_value=object())
-        self.client._wait_connection_timeout = mock.MagicMock()
-        self.client._transport = mock.MagicMock()
-        self.client._transport.wait_for_state = mock.MagicMock(
-            return_value=self.long_task(None, timeout=1)
-        )
+async def test_check_server_disconnected_on_disconnected(cometd_client):
+    cometd_client._transport = mock.MagicMock()
+    cometd_client._transport.state = TransportState.SERVER_DISCONNECTED
+    cometd_client._transport.last_connect_result = object()
 
-        result = await self.client._get_message(None)
+    with pytest.raises(ServerError, match="Connection closed by the server"):
+        await cometd_client._check_server_disconnected()
 
-        self.assertIs(result, self.client._incoming_queue.get.return_value)
-        self.client._wait_connection_timeout.assert_not_called()
-        self.client._transport.wait_for_state.assert_called_with(
-            TransportState.SERVER_DISCONNECTED
-        )
 
-    async def test_get_message_with_timeout_not_triggered(self):
-        self.client._incoming_queue = mock.MagicMock()
-        get_result = object()
-        self.client._incoming_queue.get = mock.MagicMock(
-            return_value=self.long_task(get_result, timeout=None)
-        )
-        self.client._wait_connection_timeout = mock.MagicMock(
-            return_value=self.long_task(None, timeout=1)
-        )
-        self.client._transport = mock.MagicMock()
-        self.client._transport.wait_for_state = mock.MagicMock(
-            return_value=self.long_task(None, timeout=1)
-        )
-        timeout = 2
+async def test_check_server_disconnected_on_not_disconnected(cometd_client):
+    cometd_client._transport = mock.MagicMock()
+    cometd_client._transport.state = TransportState.CONNECTED
 
-        result = await self.client._get_message(timeout)
+    await cometd_client._check_server_disconnected()
 
-        self.assertIs(result, get_result)
-        self.client._wait_connection_timeout.assert_called_with(timeout)
-        self.client._transport.wait_for_state.assert_called_with(
-            TransportState.SERVER_DISCONNECTED
-        )
 
-    async def test_get_message_with_timeout_triggered(self):
-        self.client._incoming_queue = mock.MagicMock()
-        get_result = object()
-        self.client._incoming_queue.get = mock.MagicMock(
-            return_value=self.long_task(get_result, timeout=1)
-        )
-        self.client._wait_connection_timeout = mock.MagicMock(
-            return_value=self.long_task(None, timeout=None)
-        )
-        self.client._transport = mock.MagicMock()
-        self.client._transport.wait_for_state = mock.MagicMock(
-            return_value=self.long_task(None, timeout=1)
-        )
-        timeout = 2
+async def test_check_server_disconnected_on_none_transport(cometd_client):
+    cometd_client._transport = None
 
-        with self.assertRaisesRegex(
-            TransportTimeoutError, "Lost connection with the server"
-        ):
-            await self.client._get_message(timeout)
-
-        self.client._incoming_queue.get.assert_called()
-        self.client._wait_connection_timeout.assert_called_with(timeout)
-        self.client._transport.wait_for_state.assert_called_with(
-            TransportState.SERVER_DISCONNECTED
-        )
-
-    async def test_get_message_with_server_disconnected(self):
-        self.client._incoming_queue = mock.MagicMock()
-        get_result = object()
-        self.client._incoming_queue.get = mock.MagicMock(
-            return_value=self.long_task(get_result, timeout=1)
-        )
-        self.client._wait_connection_timeout = mock.MagicMock(
-            return_value=self.long_task(None, timeout=1)
-        )
-        self.client._transport = mock.MagicMock()
-        self.client.close = mock.CoroutineMock()
-        self.client._transport.wait_for_state = mock.MagicMock(
-            return_value=self.long_task(None, timeout=None)
-        )
-        timeout = 2
-        self.client._transport.state = TransportState.SERVER_DISCONNECTED
-
-        with self.assertRaisesRegex(ServerError, "Connection closed by the server"):
-            await self.client._get_message(timeout)
-
-        self.client._wait_connection_timeout.assert_called_with(timeout)
-        self.client._transport.wait_for_state.assert_called_with(
-            TransportState.SERVER_DISCONNECTED
-        )
-        self.client.close.assert_called()
-
-    @mock.patch("aiocometd.client.asyncio")
-    async def test_get_message_cancelled(self, asyncio_mock):
-        self.client._incoming_queue = mock.MagicMock()
-        self.client._wait_connection_timeout = mock.MagicMock()
-        self.client._transport = mock.MagicMock()
-        self.client._transport.wait_for_state = mock.MagicMock()
-        asyncio_mock.ensure_future = mock.MagicMock(
-            side_effect=[mock.MagicMock(), mock.MagicMock(), mock.MagicMock()]
-        )
-        asyncio_mock.wait = mock.CoroutineMock(side_effect=asyncio.CancelledError())
-        asyncio_mock.CancelledError = asyncio.CancelledError
-
-        with self.assertRaises(asyncio.CancelledError):
-            await self.client._get_message(1)
-
-        for task in asyncio_mock.ensure_future.side_effect:
-            task.cancel.assert_called()
-
-    async def test_check_server_disconnected_on_disconnected(self):
-        self.client._transport = mock.MagicMock()
-        self.client._transport.state = TransportState.SERVER_DISCONNECTED
-        self.client._transport.last_connect_result = object()
-
-        with self.assertRaisesRegex(
-            ServerError, "Connection closed by the server"
-        ) as cm:
-            await self.client._check_server_disconnected()
-
-        self.assertEqual(
-            cm.exception.response, self.client._transport.last_connect_result
-        )
-
-    async def test_check_server_disconnected_on_not_disconnected(self):
-        self.client._transport = mock.MagicMock()
-        self.client._transport.state = TransportState.CONNECTED
-
-        await self.client._check_server_disconnected()
-
-    async def test_check_server_disconnected_on_none_transport(self):
-        self.client._transport = None
-
-        await self.client._check_server_disconnected()
+    await cometd_client._check_server_disconnected()
