@@ -4,7 +4,6 @@ import logging
 from unittest import mock
 from enum import Enum, unique
 
-import aiohttp
 import pytest
 
 from aiocometd.client import Client
