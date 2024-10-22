@@ -68,8 +68,9 @@ class TestWebSocketFactory(TestCase):
         await self.factory(*args, **kwargs)
 
         self.factory._enter.assert_called_with(*args, **kwargs)
-        self.assertEqual(self.factory._socket,
-                         self.factory._enter.return_value)
+        self.assertEqual(
+            self.factory._socket, self.factory._enter.return_value
+        )
 
     async def test_call_socket_returns_open_socket(self):
         self.factory._enter = mock.CoroutineMock()
@@ -96,14 +97,17 @@ class TestWebSocketFactory(TestCase):
 class TestWebSocketTransport(TestCase):
     def setUp(self):
         self.http_session = object()
-        self.transport = WebSocketTransport(url="example.com/cometd",
-                                            incoming_queue=None,
-                                            http_session=self.http_session,
-                                            loop=None)
+        self.transport = WebSocketTransport(
+            url="example.com/cometd",
+            incoming_queue=None,
+            http_session=self.http_session,
+            loop=None,
+        )
 
     def test_connection_type(self):
-        self.assertEqual(self.transport.connection_type,
-                         ConnectionType.WEBSOCKET)
+        self.assertEqual(
+            self.transport.connection_type, ConnectionType.WEBSOCKET
+        )
 
     async def test_get_socket(self):
         expected_socket = object()
@@ -120,7 +124,7 @@ class TestWebSocketTransport(TestCase):
             ssl=self.transport.ssl,
             headers=headers,
             receive_timeout=self.transport.request_timeout,
-            autoping=True
+            autoping=True,
         )
 
     @mock.patch("aiocometd.transports.websocket.asyncio")
@@ -186,8 +190,9 @@ class TestWebSocketTransport(TestCase):
         result = await self.transport._send_socket_payload(socket, payload)
 
         self.transport._create_exhange_future.assert_called_with(payload)
-        socket.send_json.assert_called_with(payload,
-                                            dumps=self.transport._json_dumps)
+        socket.send_json.assert_called_with(
+            payload, dumps=self.transport._json_dumps
+        )
         self.transport._start_receive_task.assert_called()
         self.assertEqual(result, expected_result)
 
@@ -207,8 +212,9 @@ class TestWebSocketTransport(TestCase):
         result = await self.transport._send_socket_payload(socket, payload)
 
         self.transport._create_exhange_future.assert_called_with(payload)
-        socket.send_json.assert_called_with(payload,
-                                            dumps=self.transport._json_dumps)
+        socket.send_json.assert_called_with(
+            payload, dumps=self.transport._json_dumps
+        )
         self.transport._start_receive_task.assert_called()
         self.assertEqual(result, expected_result)
 
@@ -230,8 +236,9 @@ class TestWebSocketTransport(TestCase):
             await self.transport._send_socket_payload(socket, payload)
 
         self.transport._create_exhange_future.assert_called_with(payload)
-        socket.send_json.assert_called_with(payload,
-                                            dumps=self.transport._json_dumps)
+        socket.send_json.assert_called_with(
+            payload, dumps=self.transport._json_dumps
+        )
         self.transport._set_exchange_errors.assert_called_with(error)
         self.transport._start_receive_task.assert_not_called()
 
@@ -279,39 +286,43 @@ class TestWebSocketTransport(TestCase):
         socket = object()
         response = object()
         self.transport._get_socket = mock.CoroutineMock(return_value=socket)
-        self.transport._send_socket_payload = \
-            mock.CoroutineMock(return_value=response)
+        self.transport._send_socket_payload = mock.CoroutineMock(
+            return_value=response
+        )
         headers = object()
 
-        result = await self.transport._send_final_payload(payload,
-                                                          headers=headers)
+        result = await self.transport._send_final_payload(
+            payload, headers=headers
+        )
 
         self.assertEqual(result, response)
         self.transport._get_socket.assert_called_with(headers)
-        self.transport._send_socket_payload.assert_called_with(socket,
-                                                               payload)
+        self.transport._send_socket_payload.assert_called_with(socket, payload)
 
     async def test_send_final_payload_transport_error(self):
         payload = object()
         socket = object()
         exception = client_exceptions.ClientError("message")
         self.transport._get_socket = mock.CoroutineMock(return_value=socket)
-        self.transport._send_socket_payload = \
-            mock.CoroutineMock(side_effect=exception)
+        self.transport._send_socket_payload = mock.CoroutineMock(
+            side_effect=exception
+        )
         headers = object()
 
-        with self.assertLogs(WebSocketTransport.__module__,
-                             level="DEBUG") as log:
+        with self.assertLogs(
+            WebSocketTransport.__module__, level="DEBUG"
+        ) as log:
             with self.assertRaisesRegex(TransportError, str(exception)):
-                await self.transport._send_final_payload(payload,
-                                                         headers=headers)
+                await self.transport._send_final_payload(
+                    payload, headers=headers
+                )
 
-        log_message = "WARNING:{}:Failed to send payload, {}"\
-            .format(WebSocketTransport.__module__, exception)
+        log_message = "WARNING:{}:Failed to send payload, {}".format(
+            WebSocketTransport.__module__, exception
+        )
         self.assertEqual(log.output, [log_message])
         self.transport._get_socket.assert_called_with(headers)
-        self.transport._send_socket_payload.assert_called_with(socket,
-                                                               payload)
+        self.transport._send_socket_payload.assert_called_with(socket, payload)
 
     async def test_send_final_payload_connection_closed_error(self):
         payload = object()
@@ -319,29 +330,34 @@ class TestWebSocketTransport(TestCase):
         socket2 = object()
         response = object()
         self.transport._get_socket = mock.CoroutineMock(
-            side_effect=[socket, socket2])
+            side_effect=[socket, socket2]
+        )
         error = TransportConnectionClosed()
-        self.transport._send_socket_payload = \
-            mock.CoroutineMock(side_effect=[error, response])
+        self.transport._send_socket_payload = mock.CoroutineMock(
+            side_effect=[error, response]
+        )
         headers = object()
 
-        result = await self.transport._send_final_payload(payload,
-                                                          headers=headers)
+        result = await self.transport._send_final_payload(
+            payload, headers=headers
+        )
 
         self.assertEqual(result, response)
-        self.transport._get_socket.assert_has_calls([
-            mock.call(headers), mock.call(headers)])
-        self.transport._send_socket_payload.assert_has_calls([
-            mock.call(socket, payload), mock.call(socket2, payload)
-        ])
+        self.transport._get_socket.assert_has_calls(
+            [mock.call(headers), mock.call(headers)]
+        )
+        self.transport._send_socket_payload.assert_has_calls(
+            [mock.call(socket, payload), mock.call(socket2, payload)]
+        )
 
     async def test_send_final_payload_connection_timeout_error(self):
         payload = object()
         socket = object()
         self.transport._get_socket = mock.CoroutineMock(return_value=socket)
         error = asyncio.TimeoutError()
-        self.transport._send_socket_payload = \
-            mock.CoroutineMock(side_effect=error)
+        self.transport._send_socket_payload = mock.CoroutineMock(
+            side_effect=error
+        )
         headers = object()
         self.transport._reset_socket = mock.CoroutineMock()
 
@@ -388,10 +404,13 @@ class TestWebSocketTransport(TestCase):
             self.transport._receive_done(future)
 
         self.transport._receive_task = None
-        self.assertEqual(log.output, [
-            f"DEBUG:aiocometd.transports.websocket:"
-            f"Recevie task finished with: {result!r}"
-        ])
+        self.assertEqual(
+            log.output,
+            [
+                f"DEBUG:aiocometd.transports.websocket:"
+                f"Recevie task finished with: {result!r}"
+            ],
+        )
 
     async def test_receive_done_with_error(self):
         future = mock.MagicMock()
@@ -403,10 +422,13 @@ class TestWebSocketTransport(TestCase):
             self.transport._receive_done(future)
 
         self.transport._receive_task = None
-        self.assertEqual(log.output, [
-            f"DEBUG:aiocometd.transports.websocket:"
-            f"Recevie task finished with: {result!r}"
-        ])
+        self.assertEqual(
+            log.output,
+            [
+                f"DEBUG:aiocometd.transports.websocket:"
+                f"Recevie task finished with: {result!r}"
+            ],
+        )
 
     def test_set_exchange_errors(self):
         error = ValueError()
@@ -471,15 +493,14 @@ class TestWebSocketTransport(TestCase):
         response_payload = object()
         response.json.return_value = response_payload
         socket = mock.MagicMock()
-        socket.receive = mock.CoroutineMock(
-            return_value=response
-        )
+        socket.receive = mock.CoroutineMock(return_value=response)
         self.transport._consume_payload = mock.CoroutineMock()
         self.transport._set_exchange_results = mock.CoroutineMock()
 
-        with self.assertRaisesRegex(TransportConnectionClosed,
-                                    "Received CLOSE message on "
-                                    "the factory."):
+        with self.assertRaisesRegex(
+            TransportConnectionClosed,
+            "Received CLOSE message on " "the factory.",
+        ):
             await self.transport._receive(socket)
 
         socket.receive.assert_called()
@@ -497,9 +518,9 @@ class TestWebSocketTransport(TestCase):
         self.transport._consume_payload = mock.CoroutineMock()
         self.transport._set_exchange_results = mock.CoroutineMock()
 
-        with self.assertRaisesRegex(TransportError,
-                                    "Received invalid response from the "
-                                    "server."):
+        with self.assertRaisesRegex(
+            TransportError, "Received invalid response from the " "server."
+        ):
             await self.transport._receive(socket)
 
         socket.receive.assert_called()
@@ -513,9 +534,7 @@ class TestWebSocketTransport(TestCase):
         response.json.return_value = response_payload
         socket = mock.MagicMock()
         error = ValueError()
-        socket.receive = mock.CoroutineMock(
-            side_effect=error
-        )
+        socket.receive = mock.CoroutineMock(side_effect=error)
         self.transport._consume_payload = mock.CoroutineMock()
         self.transport._set_exchange_results = mock.CoroutineMock()
         self.transport._set_exchange_errors = mock.CoroutineMock()

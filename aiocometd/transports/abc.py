@@ -1,4 +1,5 @@
 """Transport abstract base class definition"""
+
 from abc import ABC, abstractmethod
 from typing import Set, Optional, List
 
@@ -8,6 +9,7 @@ from aiocometd.typing import JsonObject
 
 class Transport(ABC):
     """Defines the operations that all transport classes should support"""
+
     @property
     @abstractmethod
     def connection_type(self) -> ConnectionType:
@@ -44,8 +46,9 @@ class Transport(ABC):
         """Reconnection advice parameters returned by the server"""
 
     @abstractmethod
-    async def handshake(self, connection_types: List[ConnectionType]) \
-            -> JsonObject:
+    async def handshake(
+        self, connection_types: List[ConnectionType]
+    ) -> JsonObject:
         """Executes the handshake operation
 
         :param connection_types: list of connection types

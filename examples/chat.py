@@ -1,4 +1,5 @@
 """Client for the CometD Chat Example"""
+
 import asyncio
 import argparse
 from typing import Dict, Any
@@ -9,8 +10,9 @@ from aiocometd import Client, ConnectionType
 from aiocometd.exceptions import AiocometdException
 
 
-async def chat_client(url: str, nickname: str,
-                      connection_type: ConnectionType) -> None:
+async def chat_client(
+    url: str, nickname: str, connection_type: ConnectionType
+) -> None:
     """Runs the chat client until it's canceled
 
     :param url: CometD server URL
@@ -25,8 +27,10 @@ async def chat_client(url: str, nickname: str,
 
         # start the client with the given connection type
         async with Client(url, connection_type) as client:
-            print(f"Connected to '{url}' using connection "
-                  f"type '{connection_type.value}'\n")
+            print(
+                f"Connected to '{url}' using connection "
+                f"type '{connection_type.value}'\n"
+            )
 
             # subscribe to the chat room's channel to receive messages
             await client.subscribe(room_channel)
@@ -36,21 +40,24 @@ async def chat_client(url: str, nickname: str,
             await client.subscribe(members_changed_channel)
 
             # publish to the room's channel that the user has joined
-            await client.publish(room_channel, {
-                "user": nickname,
-                "membership": "join",
-                "chat": nickname + " has joined"
-            })
+            await client.publish(
+                room_channel,
+                {
+                    "user": nickname,
+                    "membership": "join",
+                    "chat": nickname + " has joined",
+                },
+            )
 
             # add the user to the room's members
-            await client.publish(members_channel, {
-                "user": nickname,
-                "room": room_channel
-            })
+            await client.publish(
+                members_channel, {"user": nickname, "room": room_channel}
+            )
 
             # start the message publisher task
             input_task = asyncio.ensure_future(
-                input_publisher(client, nickname, room_channel))
+                input_publisher(client, nickname, room_channel)
+            )
 
             last_user = None
             try:
@@ -83,8 +90,9 @@ async def chat_client(url: str, nickname: str,
         print("\nExiting...")
 
 
-async def input_publisher(client: Client, nickname: str,
-                          room_channel: str) -> None:
+async def input_publisher(
+    client: Client, nickname: str, room_channel: str
+) -> None:
     """Read text from stdin and publish it on the *room_channel*
 
     :param client: A client object
@@ -106,22 +114,26 @@ async def input_publisher(client: Client, nickname: str,
         print(clear_line, end="", flush=True)
 
         # publish the message on the room's channel
-        await client.publish(room_channel, {
-            "user": nickname,
-            "chat": message_text
-        })
+        await client.publish(
+            room_channel, {"user": nickname, "chat": message_text}
+        )
 
 
 def get_arguments() -> Dict[str, Any]:
     """Returns the argument's parsed from the command line"""
     parser = argparse.ArgumentParser(description="CometD chat example client")
-    parser.add_argument("url", metavar="server_url", type=str,
-                        help="CometD server URL")
+    parser.add_argument(
+        "url", metavar="server_url", type=str, help="CometD server URL"
+    )
     parser.add_argument("nickname", type=str, help="Chat nickname")
-    parser.add_argument("-c", "--connection_type", type=ConnectionType,
-                        choices=list(ConnectionType),
-                        default=ConnectionType.WEBSOCKET.value,
-                        help="Connection type")
+    parser.add_argument(
+        "-c",
+        "--connection_type",
+        type=ConnectionType,
+        choices=list(ConnectionType),
+        default=ConnectionType.WEBSOCKET.value,
+        help="Connection type",
+    )
 
     return vars(parser.parse_args())
 

@@ -1,9 +1,17 @@
 """Websocket transport class definition"""
+
 import asyncio
 import logging
 from contextlib import suppress
-from typing import Callable, Optional, AsyncContextManager, Any, Awaitable, \
-    cast, Dict
+from typing import (
+    Callable,
+    Optional,
+    AsyncContextManager,
+    Any,
+    Awaitable,
+    cast,
+    Dict,
+)
 
 import aiohttp
 import aiohttp.client_ws
@@ -30,6 +38,7 @@ class WebSocketFactory:  # pylint: disable=too-few-public-methods
 
     This class allows the usage of WebSocket objects without context blocks
     """
+
     def __init__(self, http_session: aiohttp.ClientSession):
         """
         :param http_session: HTTP session
@@ -90,8 +99,9 @@ class WebSocketTransport(TransportBase):
         self._socket_factory = WebSocketFactory(self._http_session)
         #: pending message exchanges between the client and server,
         #: the request message's id is used as a key
-        self._pending_exhanges: Dict[int, "asyncio.Future[JsonObject]"] \
-            = dict()
+        self._pending_exhanges: Dict[int, "asyncio.Future[JsonObject]"] = (
+            dict()
+        )
         #: task for receiving incoming messages
         self._receive_task: Optional["asyncio.Task[None]"] = None
 
@@ -111,10 +121,12 @@ class WebSocketTransport(TransportBase):
             ssl=self.ssl,
             headers=headers,
             receive_timeout=self.request_timeout,
-            autoping=True)
+            autoping=True,
+        )
 
-    def _create_exhange_future(self, payload: Payload) \
-            -> "asyncio.Future[JsonObject]":
+    def _create_exhange_future(
+        self, payload: Payload
+    ) -> "asyncio.Future[JsonObject]":
         """Create a future which represents an exchange of messages between
         the server and client
 
@@ -159,8 +171,9 @@ class WebSocketTransport(TransportBase):
         # clear the pending exchanges
         self._pending_exhanges.clear()
 
-    async def _send_final_payload(self, payload: Payload, *,
-                                  headers: Headers) -> JsonObject:
+    async def _send_final_payload(
+        self, payload: Payload, *, headers: Headers
+    ) -> JsonObject:
         try:
             try:
                 # try to send the payload on the socket which might have
@@ -182,8 +195,9 @@ class WebSocketTransport(TransportBase):
             LOGGER.warning("Failed to send payload, %s", error)
             raise TransportError(str(error)) from error
 
-    async def _send_socket_payload(self, socket: WebSocket,
-                                   payload: Payload) -> JsonObject:
+    async def _send_socket_payload(
+        self, socket: WebSocket, payload: Payload
+    ) -> JsonObject:
         """Send *payload* to the server on the given *socket*
 
         :param socket: WebSocket object
@@ -229,15 +243,18 @@ class WebSocketTransport(TransportBase):
             while True:
                 response = await socket.receive()
                 if response.type == aiohttp.WSMsgType.CLOSE:
-                    raise TransportConnectionClosed("Received CLOSE message "
-                                                    "on the factory.")
+                    raise TransportConnectionClosed(
+                        "Received CLOSE message " "on the factory."
+                    )
                 # parse the response payload
                 try:
-                    response_payload \
-                        = cast(Payload, response.json(loads=self._json_loads))
+                    response_payload = cast(
+                        Payload, response.json(loads=self._json_loads)
+                    )
                 except TypeError:
-                    raise TransportError("Received invalid response from the "
-                                         "server.")
+                    raise TransportError(
+                        "Received invalid response from the " "server."
+                    )
 
                 # consume all event messages in the payload
                 await self._consume_payload(response_payload)

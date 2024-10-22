@@ -1,4 +1,5 @@
 """CometD client for asyncio"""
+
 import logging
 
 from aiocometd._metadata import VERSION as __version__  # noqa: F401

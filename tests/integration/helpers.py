@@ -1,4 +1,5 @@
 """Helper classes for integration tests"""
+
 import time
 from urllib.request import urlopen
 from http import HTTPStatus
@@ -12,6 +13,7 @@ class DockerContainer:
 
     If the container with the given *name* doesn't exists yet it'll be created.
     """
+
     def __init__(self, image_name, name, container_port, host_port):
         """
         :param str image_name: A docker image name with or without a tag
@@ -38,10 +40,7 @@ class DockerContainer:
     def _ensure_exists(self):
         """Create the container if it doesn't already exists"""
         # try to find the container by name and image
-        filter = {
-            "name": self.name,
-            "ancestor": self.image_name
-        }
+        filter = {"name": self.name, "ancestor": self.image_name}
         results = self.client.containers.list(all=True, filters=filter)
 
         # if it doesn't exists then create it
@@ -50,7 +49,7 @@ class DockerContainer:
                 name=self.name,
                 image=self.image_name,
                 ports={f"{self.contaner_port}/tcp": self.host_port},
-                detach=True
+                detach=True,
             )
         # if it exists assign it to the instance attribute
         else:
@@ -86,8 +85,7 @@ class DockerContainer:
         return f"http://localhost:{self.host_port}"
 
     def ensure_reachable(self):
-        """Start the container and make sure it's exposed service is reachable
-        """
+        """Start the container and make sure it's exposed service is reachable"""
         # make sure the container is running
         self._ensure_running()
         url = self._get_url()

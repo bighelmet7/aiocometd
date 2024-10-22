@@ -1,6 +1,6 @@
 import pytest
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def anyio_backend():
     return "asyncio"

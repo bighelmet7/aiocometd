@@ -1,4 +1,5 @@
 """Type definitions"""
+
 from typing import List, Union, Callable, Awaitable, Any, Dict
 import ssl as ssl_module
 

@@ -1,7 +1,10 @@
 from asynctest import TestCase, mock
 
-from aiocometd.transports.registry import create_transport, \
-    register_transport, TRANSPORT_CLASSES
+from aiocometd.transports.registry import (
+    create_transport,
+    register_transport,
+    TRANSPORT_CLASSES,
+)
 from aiocometd.constants import ConnectionType
 from aiocometd.exceptions import TransportInvalidOperation
 
@@ -27,8 +30,9 @@ class TestTransportFactoryFunctions(TestCase):
         transport_cls = mock.MagicMock(return_value=transport)
         TRANSPORT_CLASSES[ConnectionType.LONG_POLLING] = transport_cls
 
-        result = create_transport(ConnectionType.LONG_POLLING,
-                                  "arg", kwarg="value")
+        result = create_transport(
+            ConnectionType.LONG_POLLING, "arg", kwarg="value"
+        )
 
         self.assertEqual(result, transport)
         transport_cls.assert_called_with("arg", kwarg="value")
@@ -36,7 +40,10 @@ class TestTransportFactoryFunctions(TestCase):
     def test_create_transport_error(self):
         connection_type = None
 
-        with self.assertRaisesRegex(TransportInvalidOperation,
-                                    "There is no transport for connection "
-                                    "type {!r}".format(connection_type)):
+        with self.assertRaisesRegex(
+            TransportInvalidOperation,
+            "There is no transport for connection " "type {!r}".format(
+                connection_type
+            ),
+        ):
             create_transport(connection_type)

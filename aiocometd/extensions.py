@@ -1,4 +1,5 @@
 """Extension classes"""
+
 from abc import ABC, abstractmethod
 from typing import Optional
 
@@ -7,6 +8,7 @@ from aiocometd.typing import Payload, Headers
 
 class Extension(ABC):
     """Defines operations supported by extensions"""
+
     @abstractmethod
     async def outgoing(self, payload: Payload, headers: Headers) -> None:
         """Process outgoing *payload* and *headers*
@@ -18,8 +20,9 @@ class Extension(ABC):
         """
 
     @abstractmethod
-    async def incoming(self, payload: Payload,
-                       headers: Optional[Headers] = None) -> None:
+    async def incoming(
+        self, payload: Payload, headers: Optional[Headers] = None
+    ) -> None:
         """Process incoming *payload* and *headers*
 
         Called just after a payload is received
@@ -31,6 +34,7 @@ class Extension(ABC):
 
 class AuthExtension(Extension):  # pylint: disable=abstract-method
     """Extension with support for authentication"""
+
     async def authenticate(self) -> None:
         """Called after a failed authentication attempt
 

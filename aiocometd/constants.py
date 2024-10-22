@@ -1,10 +1,12 @@
 """Transport related constants"""
+
 from enum import Enum, unique, auto
 
 
 @unique
 class ConnectionType(Enum):
     """CometD Connection types"""
+
     #: Long polling connection type
     LONG_POLLING = "long-polling"
     #: Websocket connection type
@@ -22,6 +24,7 @@ SERVICE_CHANNEL_PREFIX = "/service/"
 @unique
 class MetaChannel(str, Enum):
     """CometD meta channel names"""
+
     #: Handshake meta channel
     HANDSHAKE = META_CHANNEL_PREFIX + "handshake"
     #: Connect meta channel
@@ -37,6 +40,7 @@ class MetaChannel(str, Enum):
 @unique
 class TransportState(Enum):
     """Describes a transport object's state"""
+
     #: Transport is disconnected
     DISCONNECTED = auto()
     #: Connection terminated by the server
@@ -57,7 +61,7 @@ HANDSHAKE_MESSAGE = {
     "supportedConnectionTypes": None,
     # optional
     "minimumVersion": "1.0",
-    "id": None
+    "id": None,
 }
 
 #: Connect message template
@@ -67,7 +71,7 @@ CONNECT_MESSAGE = {
     "clientId": None,
     "connectionType": None,
     # optional
-    "id": None
+    "id": None,
 }
 
 #: Disconnect message template
@@ -76,7 +80,7 @@ DISCONNECT_MESSAGE = {
     "channel": MetaChannel.DISCONNECT,
     "clientId": None,
     # optional
-    "id": None
+    "id": None,
 }
 
 #: Subscribe message template
@@ -86,7 +90,7 @@ SUBSCRIBE_MESSAGE = {
     "clientId": None,
     "subscription": None,
     # optional
-    "id": None
+    "id": None,
 }
 
 #: Unsubscribe message template
@@ -96,7 +100,7 @@ UNSUBSCRIBE_MESSAGE = {
     "clientId": None,
     "subscription": None,
     # optional
-    "id": None
+    "id": None,
 }
 
 #: Publish message template
@@ -106,5 +110,5 @@ PUBLISH_MESSAGE = {
     "clientId": None,
     "data": None,
     # optional
-    "id": None
+    "id": None,
 }
