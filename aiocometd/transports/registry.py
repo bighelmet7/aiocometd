@@ -10,6 +10,8 @@ from aiocometd.transports.abc import Transport
 TRANSPORT_CLASSES = {}
 
 
+# TODO: fix typing on the register_transport, this doesn't
+# work as expected on other transport classes.
 def register_transport(
     conn_type: ConnectionType,
 ) -> Callable[[Type[Transport]], Type[Transport]]:
