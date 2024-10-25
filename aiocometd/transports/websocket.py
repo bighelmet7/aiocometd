@@ -99,7 +99,7 @@ class WebSocketTransport(TransportBase):
         self._socket_factory = WebSocketFactory(self._http_session)
         #: pending message exchanges between the client and server,
         #: the request message's id is used as a key
-        self._pending_exhanges: Dict[int, "asyncio.Future[JsonObject]"] = (
+        self._pending_exchanges: Dict[int, "asyncio.Future[JsonObject]"] = (
             dict()
         )
         #: task for receiving incoming messages
@@ -124,7 +124,7 @@ class WebSocketTransport(TransportBase):
             autoping=True,
         )
 
-    def _create_exhange_future(
+    def _create_exchange_future(
         self, payload: Payload
     ) -> "asyncio.Future[JsonObject]":
         """Create a future which represents an exchange of messages between
@@ -137,7 +137,7 @@ class WebSocketTransport(TransportBase):
         outgoing *payload*
         """
         future: "asyncio.Future[JsonObject]" = asyncio.Future()
-        self._pending_exhanges[payload[0]["id"]] = future
+        self._pending_exchanges[payload[0]["id"]] = future
         return future
 
     def _set_exchange_results(self, response_payload: Payload) -> None:
@@ -152,9 +152,9 @@ class WebSocketTransport(TransportBase):
             if "id" in response_message:
                 message_id = response_message["id"]
                 # if the message id is associated with any pending exchange
-                if message_id in self._pending_exhanges:
+                if message_id in self._pending_exchanges:
                     # remove the exchange from the pending exchanges
-                    exchange = self._pending_exhanges.pop(message_id)
+                    exchange = self._pending_exchanges.pop(message_id)
                     # if the future is not completed yet then set its result
                     if not exchange.done():
                         exchange.set_result(response_message)
@@ -165,11 +165,11 @@ class WebSocketTransport(TransportBase):
         :param error: An exception
         """
         # set the exception for all the exchanges
-        for exchange in self._pending_exhanges.values():
+        for exchange in self._pending_exchanges.values():
             if not exchange.done():
                 exchange.set_exception(error)
         # clear the pending exchanges
-        self._pending_exhanges.clear()
+        self._pending_exchanges.clear()
 
     async def _send_final_payload(
         self, payload: Payload, *, headers: Headers
@@ -208,7 +208,7 @@ class WebSocketTransport(TransportBase):
         message instead of the expected response
         """
         # create a future for the exchange of messages
-        future = self._create_exhange_future(payload)
+        future = self._create_exchange_future(payload)
         try:
             # send the outgoing payload
             await socket.send_json(payload, dumps=self._json_dumps)
@@ -244,7 +244,7 @@ class WebSocketTransport(TransportBase):
                 response = await socket.receive()
                 if response.type == aiohttp.WSMsgType.CLOSE:
                     raise TransportConnectionClosed(
-                        "Received CLOSE message " "on the factory."
+                        "Received CLOSE message on the factory."
                     )
                 # parse the response payload
                 try:
