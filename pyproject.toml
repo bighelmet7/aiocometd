@@ -1,6 +1,81 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-# Support Python 3.10+.
+name = "aiocometd"
+dynamic = ["version"]
+description = "CometD client for asyncio"
+readme = "README.rst"
+license = "MIT"
 requires-python = ">=3.10"
+authors = [
+    { name = "Róbert Márki", email = "gsmiko@gmail.com" },
+]
+maintainers = [
+    { name = "bighelmet7", email = "bighelmet7@not-an-email.local" },
+]
+keywords = [
+    "aiohttp",
+    "asyncio",
+    "bayeux",
+    "comet",
+    "cometd",
+    "push",
+    "streaming",
+]
+classifiers = [
+    "Framework :: AsyncIO",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+dependencies = [
+    "aiohttp>=3.1,<4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "aioconsole>=0.1.7,<1.0.0",
+    "coverage>=4.5,<5.0",
+    "mypy",
+    "ruff",
+    "sphinx-autodoc-typehints",
+    "Sphinx>=1.7,<2.0",
+    "sphinxcontrib-asyncio>=0.2.0",
+]
+docs = [
+    "sphinx-autodoc-typehints",
+    "Sphinx>=1.7,<2.0",
+    "sphinxcontrib-asyncio>=0.2.0",
+]
+examples = [
+    "aioconsole>=0.1.7,<1.0.0",
+]
+tests = [
+    "coverage>=4.5,<5.0",
+    "mypy",
+]
+
+[project.urls]
+CI = "https://travis-ci.org/robertmrk/aiocometd"
+Coverage = "https://coveralls.io/github/robertmrk/aiocometd"
+Docs = "http://aiocometd.readthedocs.io/"
+Homepage = "https://github.com/robertmrk/aiocometd"
+
+[tool.hatch.version]
+path = "aiocometd/__about__.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/aiocometd",
+]
+
+[tool.coverage.run]
+source_pkgs = ["aiocometd"]
+branch = true
 
 [tool.ruff]
 # Set the maximum line length to 79.

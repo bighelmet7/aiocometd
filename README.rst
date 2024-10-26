@@ -1,25 +1,39 @@
-*FORKED* aiocometd
+aiocometd
 =========
-
-.. image:: https://badge.fury.io/py/aiocometd.svg
-    :target: https://badge.fury.io/py/aiocometd
-    :alt: PyPI package
 
 .. image:: https://readthedocs.org/projects/aiocometd/badge/?version=latest
     :target: http://aiocometd.readthedocs.io/en/latest/?badge=latest
     :alt: Documentation Status
 
-.. image:: https://travis-ci.org/robertmrk/aiocometd.svg?branch=develop
-    :target: https://travis-ci.org/robertmrk/aiocometd
-    :alt: Build status
-
-.. image:: https://coveralls.io/repos/github/robertmrk/aiocometd/badge.svg
-    :target: https://coveralls.io/github/robertmrk/aiocometd
-    :alt: Coverage
-
 .. image:: https://img.shields.io/badge/License-MIT-yellow.svg
     :target: https://opensource.org/licenses/MIT
     :alt: MIT license
+
+Forked project
+--------
+
+:warning: The maintainer of aiocometd, [Róbert Márki](https://github.com/robertmrk), unfortunately
+was not responding to the open [Issues](https://github.com/robertmrk/aiocometd/issues) in the aiocometd
+repository. Multiple people attempted to fork Róbert's project, in order to support asyncio on Python >=3.10.
+But, I noticed that most of this attempts were missing:
+
+- tests
+- still using setup.py (nothing wrong about this though, but the industry is moving towards pyproject)
+- removing just the `loop` keyword from the asyncio calls, without updating the whole module
+
+I tried to resolve all of the above items:
+
+- tests are now running compatible with `pytest`
+- removed `asynctest`, nothing wrong about it, but the `unittest.mock` has the `AsyncMock`
+- fixed some typos
+- reformatted the code using `ruff`
+- removed `setup.py`, `setup.cfg`, `tox.ini`, `_metadata.py`. In favour of `pyproject.toml`
+
+All credits should still go to Róbert, he did a great Python package that wasn't that complex
+to upgrade to a new Python version.
+
+Description
+--------
 
 aiocometd is a CometD_ client built using asyncio_, implementing the Bayeux_
 protocol.
@@ -27,6 +41,7 @@ protocol.
 CometD_ is a scalable WebSocket and HTTP based event and message routing bus.
 CometD_ makes use of WebSocket and HTTP push technologies known as Comet_ to
 provide low-latency data from the server to browsers and client applications.
+
 
 Features
 --------
@@ -40,7 +55,7 @@ Features
 Usage
 -----
 
-.. code-block:: python
+```python
 
     import asyncio
 
@@ -76,8 +91,9 @@ Usage
                         print(f"{data['user']}: {data['chat']}")
 
     if __name__ == "__main__":
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         loop.run_until_complete(chat())
+```
 
 For more detailed usage examples take a look at the
 `command line chat example <cli_example_>`_ or for a more complex example with
@@ -91,14 +107,14 @@ https://aiocometd.readthedocs.io/
 Install
 -------
 
-.. code-block:: bash
-
+```bash
     pip install aiocometd
+```
 
 Requirements
 ------------
 
-- Python 3.6+
+- Python 3.10+
 - aiohttp_
 
 .. _aiohttp: https://github.com/aio-libs/aiohttp/

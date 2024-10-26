@@ -76,7 +76,7 @@ Usage
                         print(f"{data['user']}: {data['chat']}")
 
     if __name__ == "__main__":
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         loop.run_until_complete(chat())
 
 For more detailed usage examples take a look at the

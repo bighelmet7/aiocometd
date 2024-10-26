@@ -142,7 +142,7 @@ def main() -> None:
     """Starts the chat client application"""
     arguments = get_arguments()
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     chat_task = asyncio.ensure_future(chat_client(**arguments), loop=loop)
     try:
         loop.run_until_complete(chat_task)
