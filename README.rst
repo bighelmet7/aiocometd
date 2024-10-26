@@ -12,8 +12,7 @@ aiocometd
 Forked project
 --------
 
-
-:warning: The maintainer of aiocometd, [Róbert Márki](https://github.com/robertmrk), unfortunately
+The maintainer of aiocometd, [Róbert Márki](https://github.com/robertmrk), unfortunately
 was not responding to the open [Issues](https://github.com/robertmrk/aiocometd/issues) in the aiocometd
 repository. Multiple people attempted to fork Róbert's project, in order to support asyncio on Python >=3.10.
 But, I noticed that most of this attempts were missing:
